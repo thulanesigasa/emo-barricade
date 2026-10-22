@@ -10,7 +10,7 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 const createElement = (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) });
 const exports = {};
 vm.runInNewContext(compiled, { exports, require(name) {
-  if (name === 'react') return { createElement };
+  if (name === 'react') return { default: { createElement }, createElement };
   if (name === 'react-native') return { Pressable: 'Pressable', View: 'View', Text: 'Text', StyleSheet: { create: value => value } };
   if (name === '../engine') return { SIZE: 11, same: (a, b) => a.r === b.r && a.c === b.c };
   throw new Error(name);
