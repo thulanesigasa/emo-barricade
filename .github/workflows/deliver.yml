@@ -1,0 +1,137 @@
+name: Check, build APK & publish OTA
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['README.md', 'docs/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Delivery action
+        type: choice
+        default: ota
+        options: [ota, build]
+permissions:
+  contents: read
+concurrency:
+  group: barricade-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies (bootstrap lockfile once)
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - run: npm run verify
+      - run: npm run export:android
+      - name: Retain exact dependency resolution for delivery
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-lock
+          path: package-lock.json
+  deliver:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: verify
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-lock
+      - run: npm ci
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Link Expo project on first run
+        run: |
+          if ! node -e "if(!require('./app.json').expo.extra?.eas?.projectId) process.exit(1)"; then
+            eas init --force --non-interactive
+          fi
+          node scripts/configure-expo.mjs
+          npm run check:runtime
+      - name: Decide whether an APK is needed
+        id: plan
+        env:
+          DELIVERY_ACTION: ${{ inputs.action }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [ ! -f .native-baseline.json ] || [ "$DELIVERY_ACTION" = "build" ] || [[ "$COMMIT_MESSAGE" == *'[build-apk]'* ]]; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+          else
+            node scripts/native-baseline.mjs
+            echo 'build=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Validate linked Android export
+        run: npm run export:android
+      - uses: actions/setup-java@v4
+        if: steps.plan.outputs.build == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        if: steps.plan.outputs.build == 'true'
+      - name: Compile installable Android testing APK
+        if: steps.plan.outputs.build == 'true'
+        run: |
+          node -e "const fs=require('fs');const a=require('./app.json');a.expo.android.versionCode=Number(process.env.GITHUB_RUN_NUMBER);fs.writeFileSync('app.json',JSON.stringify(a,null,2)+'\n');"
+          npx expo prebuild --platform android --no-install
+          echo 'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8' >> android/gradle.properties
+          echo 'org.gradle.parallel=false' >> android/gradle.properties
+          echo 'expo.inlineModules.watchedDirectories=[]' >> android/gradle.properties
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --max-workers=2
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - name: Record the compiled native baseline
+        if: steps.plan.outputs.build == 'true'
+        run: node scripts/native-baseline.mjs --record
+      - name: Upload APK
+        if: steps.plan.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: barricade-v1.0.1-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+      - name: Publish downloadable testing release
+        if: steps.plan.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build-output
+          cp android/app/build/outputs/apk/release/app-release.apk build-output/barricade-v1.0.1.apk
+          gh release create "v1.0.1-build.${GITHUB_RUN_NUMBER}" build-output/barricade-v1.0.1.apk --target "$GITHUB_SHA" --title "Barricade 1.0.1 — Android test build ${GITHUB_RUN_NUMBER}" --prerelease --notes-file docs/test-release.md
+      - name: Persist project link, dependency lock & successful native baseline
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.json package-lock.json .native-baseline.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record Expo link and verified APK baseline [skip ci]'
+            git push origin HEAD:main
+          fi
+      - name: Verify OTA compatibility before publishing
+        run: |
+          npm run check:runtime
+          node scripts/native-baseline.mjs
+      - name: Publish production OTA (runtime 1.0.1)
+        run: eas update --channel production-1.0.1 --platform android --environment production --message "GitHub ${GITHUB_SHA}" --non-interactive
+      - name: Publish preview OTA (runtime 1.0.1)
+        run: eas update --channel preview-1.0.1 --platform android --environment preview --message "GitHub ${GITHUB_SHA}" --non-interactive

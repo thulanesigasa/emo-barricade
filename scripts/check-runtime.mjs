@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const { expo } = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+assert.equal(expo.runtimeVersion, '1.0.1', 'OTA runtime must remain the literal string 1.0.1');
+for (const platform of ['android','ios']) assert.ok(!expo[platform]?.runtimeVersion, 'Do not override the shared runtime');
+const { build } = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+assert.equal(build.preview.channel, 'preview-1.0.1');
+assert.equal(build.production.channel, 'production-1.0.1');
+for (const p of [expo.icon,expo.web.favicon,expo.android.adaptiveIcon.foregroundImage]) assert.ok(fs.existsSync(p), `Missing asset ${p}`);
+console.log('OTA runtime locked to 1.0.1; channels and branding verified.');

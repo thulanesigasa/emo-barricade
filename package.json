@@ -1,0 +1,33 @@
+{
+  "name": "emo-barricade",
+  "version": "1.0.1",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "check:runtime": "node scripts/check-runtime.mjs",
+    "verify": "npm run check:runtime && npm test && npm run typecheck",
+    "export:android": "expo export --platform android --output-dir dist-android"
+  },
+  "dependencies": {
+    "expo": "~57.0.30",
+    "expo-splash-screen": "~57.0.9",
+    "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.26",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-dom": "19.2.3",
+    "react-native-web": "^0.21.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "@react-native-async-storage/async-storage": "2.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.3",
+    "typescript": "~6.0.3"
+  },
+  "type": "module"
+}
