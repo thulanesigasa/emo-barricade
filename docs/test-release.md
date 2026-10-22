@@ -1,4 +1,4 @@
-Download **barricade-v1.0.1.apk** in Assets and install it on your Android phone.
+Download **barricade-v1.0.2.apk** in Assets and install it on your Android phone.
 
 - Offline 11 × 11 strategy race, 2–4 players, computer or pass & play.
 - Move, jump, and place barricades while leaving everyone a route.

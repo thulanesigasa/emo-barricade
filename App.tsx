@@ -213,7 +213,7 @@ function Content() {
         <Text style={s.eyebrow}>PREFERENCES</Text>
         <View style={s.sectionBlock}><Text style={s.ruleTitle}>Move hints</Text><Text style={s.body}>Highlight squares your pawn can reach.</Text><Button secondary title={hints ? 'Hints: On' : 'Hints: Off'} onPress={() => setHints(!hints)} /></View>
         <View style={s.sectionBlock}><Text style={s.ruleTitle}>Computer strategy</Text><Text style={s.body}>{tactical ? 'Tactical opponents move and place walls to slow you down.' : 'Relaxed opponents focus on finding their shortest route.'}</Text><Button secondary title={tactical ? 'Difficulty: Tactical' : 'Difficulty: Relaxed'} onPress={() => setTactical(!tactical)} /></View>
-        <View style={s.sectionBlock}><Text style={s.ruleTitle}>App updates</Text><Text style={s.body}>Barricade • Version 1.0.1{ '\n' }Your game works offline. Connect only to download an update.</Text><Button secondary disabled={updating} title={updating ? 'Checking…' : 'Check for updates'} onPress={checkUpdates} /></View>
+        <View style={s.sectionBlock}><Text style={s.ruleTitle}>App updates</Text><Text style={s.body}>Barricade • Version 1.0.2{ '\n' }Your game works offline. Connect only to download an update.</Text><Button secondary disabled={updating} title={updating ? 'Checking…' : 'Check for updates'} onPress={checkUpdates} /></View>
         <Text style={s.footer}>BARRICADE • BUILT TO MAKE YOU THINK</Text>
       </>}
       {!!notice && <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={s.notice}>{notice}</Text>}

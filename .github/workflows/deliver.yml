@@ -74,6 +74,8 @@ jobs:
           fi
           node scripts/configure-expo.mjs
           npm run check:runtime
+          APP_VERSION=$(node -p "require('./app.json').expo.version")
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
       - name: Decide whether an APK is needed
         id: plan
         env:
@@ -153,7 +155,7 @@ jobs:
         if: steps.plan.outputs.build == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: barricade-v1.0.1-apk
+          name: barricade-v${{ env.APP_VERSION }}-apk
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
       - name: Publish downloadable testing release
@@ -162,8 +164,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/release/app-release.apk build-output/barricade-v1.0.1.apk
-          gh release create "v1.0.1-build.${GITHUB_RUN_NUMBER}" build-output/barricade-v1.0.1.apk --target "$GITHUB_SHA" --title "Barricade 1.0.1 — Android test build ${GITHUB_RUN_NUMBER}" --prerelease --notes-file docs/test-release.md
+          cp android/app/build/outputs/apk/release/app-release.apk "build-output/barricade-v${APP_VERSION}.apk"
+          gh release create "v${APP_VERSION}-build.${GITHUB_RUN_NUMBER}" build-output/barricade-v1.0.1.apk --target "$GITHUB_SHA" --title "Barricade ${APP_VERSION} — Android test build ${GITHUB_RUN_NUMBER}" --prerelease --notes-file docs/test-release.md
       - name: Persist project link, dependency lock & successful native baseline
         run: |
           git config user.name 'github-actions[bot]'
