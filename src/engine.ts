@@ -3,14 +3,29 @@ export const COLORS = ['#20caff', '#ffbf24', '#24df86', '#ff4c78'];
 export type Point = { r: number; c: number };
 export type Wall = Point & { direction: 'h' | 'v'; owner: number };
 export type Player = { name: string; color: string; position: Point; walls: number; bot: boolean };
-export type Game = { players: Player[]; walls: Wall[]; turn: number; winner: number | null; moves: number; log: string };
+export const LAYOUTS = ['Open', 'Crossroads', 'Switchback'] as const;
+export type Layout = typeof LAYOUTS[number];
+export type Game = { layout?: Layout; players: Player[]; walls: Wall[]; turn: number; winner: number | null; moves: number; log: string };
 export type Action = { type: 'move'; to: Point } | { type: 'wall'; wall: Wall } | { type: 'pass' };
 export const same = (a: Point, b: Point) => a.r === b.r && a.c === b.c;
 const inside = (p: Point) => Number.isInteger(p.r) && Number.isInteger(p.c) && p.r >= 0 && p.r < SIZE && p.c >= 0 && p.c < SIZE;
 const directions = [[-1, 0], [0, -1], [0, 1], [1, 0]];
-export function createGame(count = 2, bots = true): Game {
+export function createGame(count = 2, bots = true, layout: Layout = 'Open'): Game {
   const columns = count === 2 ? [3, 7] : count === 3 ? [2, 5, 8] : [1, 4, 6, 9];
-  return { players: columns.map((c, i) => ({ name: i === 0 ? 'You' : bots ? `CPU ${i}` : `Player ${i + 1}`, color: COLORS[i], position: { r: SIZE - 1, c }, walls: 8, bot: bots && i > 0 })), walls: [], turn: 0, winner: null, moves: 0, log: 'Reach the gold edge. Every move matters.' };
+  const game: Game = { layout, players: columns.map((c, i) => ({ name: i === 0 ? 'You' : bots ? `CPU ${i}` : `Player ${i + 1}`, color: COLORS[i], position: { r: SIZE - 1, c }, walls: 8, bot: bots && i > 0 })), walls: [], turn: 0, winner: null, moves: 0, log: 'Reach the gold edge. Every move matters.' };
+  const presets: Record<Layout, [number, number, 'h' | 'v'][]> = {
+    Open: [],
+    Crossroads: [[7, 1, 'h'], [7, 8, 'h'], [4, 3, 'v'], [4, 6, 'v'], [2, 4, 'h']],
+    Switchback: [[8, 2, 'h'], [8, 7, 'h'], [5, 0, 'h'], [5, 5, 'h'], [5, 8, 'h'], [2, 2, 'h'], [2, 7, 'h']]
+  };
+  for (const [r, c, direction] of presets[layout]) {
+    game.turn = game.walls.length % game.players.length;
+    const wall: Wall = { r, c, direction, owner: game.turn };
+    if (wallError(game, wall)) throw new Error('Invalid starting layout');
+    game.walls.push(wall);
+  }
+  game.turn = 0;
+  return game;
 }
 export function blocked(a: Point, b: Point, walls: Wall[]): boolean {
   return walls.some(w => w.direction === 'h'
@@ -67,7 +82,7 @@ export function applyAction(game: Game, action: Action): Game {
   } else if (action.type === 'move') {
     if (!legalMoves(game).some(p => same(p, action.to))) return game;
     player.position = { ...action.to };
-    next.log = `${player.name} moved a step closer.`;
+    next.log = `${player.name} moved a pawn.`;
     if (action.to.r === 0) { next.winner = game.turn; next.log = `${player.name} reached the gold edge!`; }
   } else {
     if (wallError(game, action.wall)) return game;
@@ -102,7 +117,8 @@ export function botAction(game: Game, tactical = true): Action {
 export function isGame(value: unknown): value is Game {
   if (!value || typeof value !== 'object') return false;
   const g = value as Game;
-  if (!Array.isArray(g.players) || g.players.length < 2 || g.players.length > 4 || !Array.isArray(g.walls) || g.walls.length > 32 || !Number.isInteger(g.turn) || g.turn < 0 || g.turn >= g.players.length || !Number.isInteger(g.moves) || g.moves < 0 || typeof g.log !== 'string') return false;
+  if (g.layout !== undefined && !LAYOUTS.includes(g.layout)) return false;
+  if (!Array.isArray(g.players) || g.players.length < 2 || g.players.length > 4 || !Array.isArray(g.walls) || g.walls.length > 40 || !Number.isInteger(g.turn) || g.turn < 0 || g.turn >= g.players.length || !Number.isInteger(g.moves) || g.moves < 0 || typeof g.log !== 'string') return false;
   if (!g.players.every(p => p && typeof p.name === 'string' && COLORS.includes(p.color) && typeof p.bot === 'boolean' && p.position && inside(p.position) && Number.isInteger(p.walls) && p.walls >= 0 && p.walls <= 8)) return false;
   if (g.players.some((p, i) => g.players.some((q, j) => i !== j && same(p.position, q.position)))) return false;
   if (!g.walls.every(w => w && Number.isInteger(w.r) && Number.isInteger(w.c) && w.r >= 0 && w.r < 10 && w.c >= 0 && w.c < 10 && ['h', 'v'].includes(w.direction) && Number.isInteger(w.owner) && w.owner >= 0 && w.owner < g.players.length)) return false;

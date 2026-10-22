@@ -64,3 +64,12 @@ test('passing is allowed only when no pawn move exists',()=>{
   assert.equal(botAction(g).type,'pass');
   const next=applyAction(g,{type:'pass'});assert.equal(next.turn,1);assert.equal(next.moves,1);
 });
+test('all board layouts preserve routes for 2–4 players and eight available walls',()=>{
+  for(const layout of ['Open','Crossroads','Switchback']) for(const count of [2,3,4]) {
+    const g=createGame(count,true,layout);assert.ok(isGame(g));assert.equal(g.turn,0);assert.equal(g.moves,0);
+    assert.ok(g.players.every(p=>p.walls===8&&route(p.position,g.walls)));
+    assert.equal(g.walls.length,layout==='Open'?0:layout==='Crossroads'?5:7);
+    const existing=[];
+    for(const w of g.walls){assert.equal(wallError({...g,walls:existing,turn:w.owner},w),null);existing.push(w);}
+  }
+});

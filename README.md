@@ -8,6 +8,8 @@ Each turn, move your pawn one orthogonal square or spend one of eight two-edge b
 
 This is a screenshot-inspired ruleset: all pawns share the top goal, rather than racing to opposite edges. Online multiplayer and accounts are not part of this version.
 
+Choose Open, Crossroads, or Switchback starting layouts. Pre-placed walls leave every player a route and do not consume anyone’s eight available barricades. Suggest a move previews a legal move or wall without taking your turn. Undo restores your last full human turn including computer replies; the last 30 undo points persist with the saved match. Player cards show route distance through walls (excluding pawn occupancy). Old saves migrate automatically.
+
 Matches and preferences save locally. Invalid saved data is rejected safely. Computer turns pause while the app is in the background or a match is paused. The original supplied logo is used unchanged for app icon, adaptive icon, splash and favicon.
 
 ## Development
@@ -39,5 +41,7 @@ GitHub APKs are intended for testing and use the native template's debug signing
 2. Try 2–4 players in computer and pass & play modes. Place horizontal and vertical walls, test rejected placements, and reach the gold edge.
 3. Close/reopen the app mid-game; continue the saved match. Try airplane mode.
 4. After a compatible update, connect to the internet, open Settings → Check for updates, and restart when prompted.
+
+New commits supersede stale runs. Native generation, wrapper download and ARM APK compilation are separate bounded steps. Gradle uses its official GitHub distribution mirror, with cached dependencies and diagnostic log artifacts on failure. The APK supports ARM64 and ARMv7 phones; emulator x86 builds are not included.
 
 The initial delivery job may take several minutes. A failed job means the APK/OTA is not delivered; inspect its logs before retrying.

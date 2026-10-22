@@ -1,16 +1,51 @@
 {
   "expo": {
-    "name": "Barricade", "slug": "emo-barricade", "version": "1.0.1", "runtimeVersion": "1.0.1",
-    "scheme": "emobarricade", "orientation": "portrait", "userInterfaceStyle": "dark",
+    "name": "Barricade",
+    "slug": "emo-barricade",
+    "version": "1.0.1",
+    "runtimeVersion": "1.0.1",
+    "scheme": "emobarricade",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.thulanesigasa.emobarricade" },
-    "android": {
-      "package": "com.thulanesigasa.emobarricade", "versionCode": 1,
-      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#000000" }
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.thulanesigasa.emobarricade"
     },
-    "web": { "favicon": "./assets/favicon.png" },
-    "plugins": [["expo-splash-screen", { "image": "./assets/splash-icon.png", "imageWidth": 280, "resizeMode": "contain", "backgroundColor": "#000000" }]],
-    "updates": { "checkAutomatically": "ON_LOAD", "fallbackToCacheTimeout": 0 },
-    "extra": {}
+    "android": {
+      "package": "com.thulanesigasa.emobarricade",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 280,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ]
+    ],
+    "updates": {
+      "url": "https://u.expo.dev/e35ad141-7ddb-44a3-81b3-6f46fd3814df",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "requestHeaders": {
+        "expo-channel-name": "production-1.0.1"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e35ad141-7ddb-44a3-81b3-6f46fd3814df"
+      }
+    }
   }
 }

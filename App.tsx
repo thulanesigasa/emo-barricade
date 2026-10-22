@@ -4,7 +4,9 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Action, COLORS, Game, Point, SIZE, Wall, applyAction, botAction, createGame, isGame, legalMoves, same, wallError } from './src/engine';
+import { Action, LAYOUTS, Layout, Point, SIZE, Wall, botAction, createGame, legalMoves, route, same, wallError } from './src/engine';
+
+import { Session, playTurn, restoreSession, undoTurn } from './src/session';
 
 const KEY = 'barricade.v1.match';
 const PREFS = 'barricade.v1.preferences';
@@ -15,7 +17,10 @@ function Button({ title, onPress, secondary = false, disabled = false }: { title
 }
 function Content() {
   const [screen, setScreen] = useState<Screen>('home');
-  const [game, setGame] = useState<Game | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const game = session?.game ?? null;
+  const [layout, setLayout] = useState<Layout>('Open');
+  const [suggested, setSuggested] = useState<Point | null>(null);
   const [ready, setReady] = useState(false);
   const [players, setPlayers] = useState(2);
   const [bots, setBots] = useState(true);
@@ -36,16 +41,16 @@ function Content() {
     let live = true;
     Promise.all([AsyncStorage.getItem(KEY), AsyncStorage.getItem(PREFS)]).then(([match, preferences]) => {
       if (!live) return;
-      if (match) { try { const parsed: unknown = JSON.parse(match); if (isGame(parsed)) { setGame(parsed); setPlayers(parsed.players.length); setBots(parsed.players.some(p => p.bot)); } else setNotice('Your saved match could not be restored. Start a new game.'); } catch { setNotice('Your saved match could not be restored. Start a new game.'); } }
+      if (match) { try { const parsed = restoreSession(JSON.parse(match)); if (parsed) { setSession(parsed); setPlayers(parsed.game.players.length); setBots(parsed.game.players.some(p => p.bot)); setLayout(parsed.game.layout ?? 'Open'); } else setNotice('Your saved match could not be restored. Start a new game.'); } catch { setNotice('Your saved match could not be restored. Start a new game.'); } }
       if (preferences) { try { const p = JSON.parse(preferences); setHints(p.hints !== false); setTactical(p.tactical !== false); } catch { /* Use defaults. */ } }
     }).catch(() => { if (live) setNotice('Storage is unavailable. You can still play this session.'); }).finally(() => { if (live) setReady(true); });
     return () => { live = false; };
   }, []);
   useEffect(() => {
-    if (!ready || !game) return;
-    const snapshot = JSON.stringify(game);
+    if (!ready || !session) return;
+    const snapshot = JSON.stringify(session);
     saveQueue.current = saveQueue.current.then(() => AsyncStorage.setItem(KEY, snapshot)).catch(() => setNotice('Could not save this match. Keep the app open to continue.'));
-  }, [game, ready]);
+  }, [session, ready]);
   useEffect(() => { if (ready) AsyncStorage.setItem(PREFS, JSON.stringify({ hints, tactical })).catch(() => setNotice('Could not save settings.')); }, [hints, tactical, ready]);
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => { setForeground(state === 'active'); if (state !== 'active') setPaused(true); });
@@ -54,14 +59,26 @@ function Content() {
   const computer = !!game?.players[game.turn].bot;
   useEffect(() => {
     if (screen !== 'game' || !game || game.winner !== null || !computer || paused || !foreground) return;
-    const timeout = setTimeout(() => { setGame(current => current === game ? applyAction(current, botAction(current, tactical)) : current); setCandidate(null); setMode('move'); }, 650);
+    const timeout = setTimeout(() => { setSession(current => current?.game === game ? playTurn(current, botAction(game, tactical), false) : current); setCandidate(null); setMode('move'); }, 650);
     return () => clearTimeout(timeout);
   }, [game, computer, screen, paused, tactical, foreground]);
   useEffect(() => { if (game && screen === 'game') AccessibilityInfo.announceForAccessibility(game.winner !== null ? game.log : `${game.players[game.turn].name}'s turn`); }, [game, screen]);
-  function start() { setGame(createGame(players, bots)); setScreen('game'); setMode('move'); setCandidate(null); setNotice(''); setPaused(false); setConfirmNew(false); }
+  function start() { setSession({ game: createGame(players, bots, layout), undo: [] }); setSuggested(null); setScreen('game'); setMode('move'); setCandidate(null); setNotice(''); setPaused(false); setConfirmNew(false); }
   function submit(action: Action) {
     if (!game || computer || paused) return;
-    setGame(current => current === game ? applyAction(current, action) : current); setCandidate(null); setMode('move'); setNotice('');
+    setSession(current => current?.game === game ? playTurn(current, action) : current); setSuggested(null); setCandidate(null); setMode('move'); setNotice('');
+  }
+  function undo() {
+    if (!session?.undo.length) return;
+    setSession(current => current ? undoTurn(current) : current);
+    setSuggested(null); setCandidate(null); setMode('move'); setNotice('Turn undone — including computer responses.');
+  }
+  function suggest() {
+    if (!game || computer || game.winner !== null) return;
+    const action = botAction(game, tactical);
+    if (action.type === 'move') { setSuggested(action.to); setMode('move'); setCandidate(null); setNotice('Suggested square outlined in white. Tap it to move.'); }
+    else if (action.type === 'wall') { setSuggested(null); setMode(action.wall.direction); setCandidate(action.wall); setNotice('Suggested barricade previewed. Confirm to place it.'); }
+    else setNotice('No pawn move is available. You may pass this turn.');
   }
   function tap(p: Point) {
     if (!game || computer || game.winner !== null || paused) return;
@@ -112,6 +129,9 @@ function Content() {
           <View style={s.row}>{[true, false].map((value, i) => <Pressable accessibilityRole="button" accessibilityState={{ selected: bots === value }} key={i} onPress={() => setBots(value)} style={[s.choice, bots === value && s.choiceActive]}><Text style={[s.choiceText, bots === value && { color: yellow }]}>{value ? 'Computer' : 'Pass & play'}</Text></Pressable>)}</View>
           <Text style={s.label}>PLAYERS</Text>
           <View style={s.row}>{[2, 3, 4].map(count => <Pressable accessibilityRole="button" accessibilityLabel={`${count} players`} accessibilityState={{ selected: players === count }} key={count} onPress={() => setPlayers(count)} style={[s.choice, players === count && s.choiceActive]}><Text style={[s.choiceText, players === count && { color: yellow }]}>{count}</Text></Pressable>)}</View>
+          <Text style={s.label}>BOARD LAYOUT</Text>
+          <View style={s.row}>{LAYOUTS.map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: layout === value }} onPress={() => setLayout(value)} style={[s.choice, layout === value && s.choiceActive]}><Text style={[s.choiceText, layout === value && { color: yellow }]}>{value}</Text></Pressable>)}</View>
+          <Text style={s.hint}>{layout === 'Open' ? 'A clean board. Build your own obstacles.' : 'Pre-placed barricades create a new route to master. Everyone still has eight walls.'}</Text>
           <Button title="Start a match  ↗" disabled={!ready} onPress={() => game && game.winner === null ? setConfirmNew(true) : start()} />
           {game && game.winner === null && <Button secondary title="Continue your match" onPress={() => { setScreen('game'); setPaused(false); setNotice(''); }} />}
         </View>
@@ -120,25 +140,28 @@ function Content() {
       </>}
       {screen === 'game' && game && <>
         <View style={s.row}><View style={{ flex: 1 }}><Text style={s.eyebrow}>THE RACE IS ON</Text><Text style={s.heading}>{game.winner !== null ? `${game.players[game.winner].name} won!` : computer ? `${active?.name} is thinking…` : `${active?.name}'s move`}</Text></View><View style={s.roundBadge}><Text style={s.muted}>TURN</Text><Text style={s.turnNumber}>{game.moves + (game.winner === null ? 1 : 0)}</Text></View></View>
-        <View style={s.players}>{game.players.map((p, i) => <View key={i} style={[s.player, i === game.turn && { borderColor: p.color }]}><View style={[s.dot, { backgroundColor: p.color }]} /><Text style={s.playerName}>{p.name}</Text><Text style={s.muted}>{p.walls} walls</Text></View>)}</View>
+        <View style={s.players}>{game.players.map((p, i) => <View key={i} style={[s.player, i === game.turn && { borderColor: p.color }]}><View style={[s.dot, { backgroundColor: p.color }]} /><Text style={s.playerName}>{p.name}</Text><Text style={s.muted}>{p.walls} walls</Text><Text style={s.muted}>{(route(p.position, game.walls)?.length ?? 1) - 1} route steps</Text></View>)}</View>
         <View style={s.boardCard}>
+          <Text style={s.activity}>{game.layout ?? 'Open'} board</Text>
           <Text style={s.goal}>↑  GOLD EDGE • FIRST TO REACH IT WINS  ↑</Text>
           <View style={{ width: boardWidth, height: boardWidth, alignSelf: 'center' }} accessibilityLabel="11 by 11 game board">
             {Array.from({ length: SIZE }, (_, r) => <View key={r} style={{ flexDirection: 'row' }}>{Array.from({ length: SIZE }, (_, c) => {
               const pawn = game.players.find(p => same(p.position, { r, c }));
               const canMove = mode === 'move' && !computer && game.winner === null && valid.some(p => same(p, { r, c }));
-              return <Pressable key={c} accessibilityRole="button" accessibilityLabel={`Row ${r + 1}, column ${c + 1}${pawn ? `, ${pawn.name}` : ''}${canMove ? ', available move' : ''}${r === 0 ? ', gold edge' : ''}`} disabled={computer || game.winner !== null || paused} onPress={() => tap({ r, c })} style={{ width: unit, height: unit, padding: 2 }}><View style={[s.cell, r === 0 && s.goldCell, canMove && hints && { borderColor: active?.color, backgroundColor: '#18303a' }]}>{pawn ? <View style={[s.pawn, { backgroundColor: pawn.color, width: unit * 0.57, height: unit * 0.57 }]}><Text style={{ color: '#071017', fontSize: Math.max(10, unit * 0.28), fontWeight: '900' }}>{game.players.indexOf(pawn) + 1}</Text></View> : canMove && hints ? <View style={[s.moveDot, { backgroundColor: active?.color }]} /> : null}</View></Pressable>;
+              return <Pressable key={c} accessibilityRole="button" accessibilityLabel={`Row ${r + 1}, column ${c + 1}${pawn ? `, ${pawn.name}` : ''}${canMove ? ', available move' : ''}${r === 0 ? ', gold edge' : ''}`} disabled={computer || game.winner !== null || paused} onPress={() => tap({ r, c })} style={{ width: unit, height: unit, padding: 2 }}><View style={[s.cell, r === 0 && s.goldCell, canMove && hints && { borderColor: active?.color, backgroundColor: '#18303a' }, suggested && same(suggested, { r, c }) && { borderColor: '#fff', borderWidth: 3 }]}>{pawn ? <View style={[s.pawn, { backgroundColor: pawn.color, width: unit * 0.57, height: unit * 0.57 }]}><Text style={{ color: '#071017', fontSize: Math.max(10, unit * 0.28), fontWeight: '900' }}>{game.players.indexOf(pawn) + 1}</Text></View> : canMove && hints ? <View style={[s.moveDot, { backgroundColor: active?.color }]} /> : null}</View></Pressable>;
             })}</View>)}
             {game.walls.map(w => wallView(w))}{candidate && wallView(candidate, true)}
           </View>
         </View>
         {game.winner === null ? <View style={s.card}>
           <Text style={s.section}>{computer ? 'PLANNING THE NEXT MOVE' : 'YOUR MOVE, YOUR STRATEGY'}</Text>
-          <View style={[s.row, { marginTop: 14 }]}>{(['move', 'h', 'v'] as const).map((value, i) => <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === value, disabled: computer }} disabled={computer} key={value} onPress={() => { setMode(value); setCandidate(null); setNotice(''); }} style={[s.choice, mode === value && s.choiceActive]}><Text style={[s.choiceText, mode === value && { color: yellow }]}>{['● Move', '━ Wall', '┃ Wall'][i]}</Text></Pressable>)}</View>
+          <View style={[s.row, { marginTop: 14 }]}>{(['move', 'h', 'v'] as const).map((value, i) => <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === value, disabled: computer }} disabled={computer} key={value} onPress={() => { setMode(value); setSuggested(null); setCandidate(null); setNotice(''); }} style={[s.choice, mode === value && s.choiceActive]}><Text style={[s.choiceText, mode === value && { color: yellow }]}>{['● Move', '━ Wall', '┃ Wall'][i]}</Text></Pressable>)}</View>
           <Text style={s.hint}>{mode === 'move' ? 'Tap a neighbouring square to move your pawn.' : 'Tap the top-left square of a 2 × 2 area to preview a wall, then confirm.'}</Text>
+          <View style={s.row}><View style={{ flex: 1 }}><Button secondary title="Suggest a move" disabled={computer} onPress={suggest} /></View><View style={{ flex: 1 }}><Button secondary title="Undo turn" disabled={computer || !session?.undo.length} onPress={undo} /></View></View>
+          <Text style={s.hint}>Route steps show the shortest path through walls, before accounting for other pawns. Undo restores your previous turn.</Text>
           {valid.length === 0 && !computer && <Button secondary title="No pawn move — pass turn" onPress={() => submit({ type: 'pass' })} />}
           {candidate && <Button title="Place barricade" disabled={!!candidateError || computer} onPress={() => submit({ type: 'wall', wall: candidate })} />}
-        </View> : <View style={s.card}><Text style={s.heading}>Path conquered.</Text><Text style={s.subtitle}>A well-played race. Ready for a rematch?</Text><Button title="Play again ↗" onPress={start} /><Button secondary title="Back to home" onPress={() => setScreen('home')} /></View>}
+        </View> : <View style={s.card}><Text style={s.heading}>Path conquered.</Text><Text style={s.subtitle}>A well-played race. Ready for a rematch?</Text><Button title="Play again ↗" onPress={start} /><Button secondary title="Undo final turn" disabled={!session?.undo.length} onPress={undo} /><Button secondary title="Back to home" onPress={() => setScreen('home')} /></View>}
         <Text style={s.activity}>{game.log}</Text>
       </>}
       {screen === 'rules' && <>
@@ -148,7 +171,8 @@ function Content() {
           ['02', 'Move or barricade', 'On your turn, move one square up, down, left or right — or place one of your eight barricades. A barricade covers two square edges.'],
           ['03', 'Find another way', 'Walls cannot overlap or cross. Every player must always have a route to the gold edge. Illegal placements are rejected before your turn is spent.'],
           ['04', 'Jump ahead', 'If a pawn is directly beside you, jump over it when the next square is free. If a wall, edge or another pawn stops the jump, step around it diagonally.'],
-          ['05', 'Play anywhere', 'Choose 2–4 players. Computer mode gives you computer opponents; Pass & play lets everyone share one device. Matches save after every turn. If other pawns leave you without a legal pawn move, you can pass your turn.']
+          ['05', 'Practice your strategy', 'Choose Open, Crossroads or Switchback layouts. Suggest a move previews a legal move or barricade without spending your turn. Undo restores the position before your last move, including computer responses, and is saved with your match.'],
+          ['06', 'Play anywhere', 'Choose 2–4 players. Computer mode gives you computer opponents; Pass & play lets everyone share one device. Matches save after every turn. If other pawns leave you without a legal pawn move, you can pass your turn.']
         ].map(([number, title, body]) => <View key={number} style={s.rule}><Text style={s.ruleNumber}>{number}</Text><View style={{ flex: 1 }}><Text style={s.ruleTitle}>{title}</Text><Text style={s.body}>{body}</Text></View></View>)}
         <Button title={game && game.winner === null ? 'Return to match' : 'Let’s play ↗'} onPress={() => { if (game && game.winner === null) { setScreen('game'); setPaused(false); } else setScreen('home'); }} />
       </>}
