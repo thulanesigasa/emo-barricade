@@ -32,7 +32,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
-      ]
+      ],
+      "./plugins/with-small-launcher.cjs"
     ],
     "updates": {
       "url": "https://u.expo.dev/e35ad141-7ddb-44a3-81b3-6f46fd3814df",
