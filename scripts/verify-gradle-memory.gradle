@@ -1,0 +1,11 @@
+import java.lang.management.ManagementFactory
+
+gradle.settingsEvaluated {
+    def heapMiB = Runtime.runtime.maxMemory() / (1024 * 1024)
+    def metaPool = ManagementFactory.memoryPoolMXBeans.find { it.name == 'Metaspace' }
+    def metaMiB = metaPool ? metaPool.usage.max / (1024 * 1024) : -1
+    println "Barricade build JVM: heap=${heapMiB} MiB, metaspace=${metaMiB} MiB"
+    if (heapMiB < 3500 || (metaMiB >= 0 && metaMiB < 1900)) {
+        throw new GradleException('Build JVM memory settings were overridden. Expected 4 GiB heap and 2 GiB metaspace.')
+    }
+}
