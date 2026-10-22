@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, legalMoves, blocked, route, wallError, applyAction, botAction, isGame } from '../src/engine.ts';
 test('2–4 players start on distinct squares with a route and eight walls', () => {
-  for (const count of [2,3,4]) { const g = createGame(count); assert.equal(g.players.length, count); assert.ok(isGame(g)); assert.ok(g.players.every(p => p.walls === 8 && route(p.position, []).length === 11)); }
+  for (const count of [2,3,4]) { const g = createGame(count); assert.equal(g.players.length, count); assert.ok(isGame(g)); assert.ok(g.players.every(p => p.walls === 8 && route(p.position, g.walls, g.goal).length === g.startDistance + 1)); }
 });
 test('move consumes exactly one turn and leaves input immutable', () => {
-  const g = createGame(); const next = applyAction(g, { type: 'move', to: { r: 9, c: 3 } });
+  const g = createGame(); g.players[0].position={r:10,c:3}; g.players[1].position={r:10,c:7}; const next = applyAction(g, { type: 'move', to: { r: 9, c: 3 } });
   assert.equal(next.turn, 1); assert.equal(next.moves, 1); assert.equal(g.players[0].position.r, 10);
   assert.equal(applyAction(g, { type: 'move', to: { r: 3, c: 3 } }), g);
 });
@@ -36,7 +36,7 @@ test('a neighbouring pawn can be jumped; a wall behind it allows diagonals', () 
   assert.ok(legalMoves(g).some(p=>p.r===4&&p.c===4)); assert.ok(legalMoves(g).some(p=>p.r===4&&p.c===6));
 });
 test('first player to gold wins and further actions cannot change the game', () => {
-  const g=createGame();g.players[0].position={r:1,c:3};
+  const g=createGame();g.goal={r:0,c:3};g.players[0].position={r:1,c:3};
   const won=applyAction(g,{type:'move',to:{r:0,c:3}});assert.equal(won.winner,0);
   assert.equal(applyAction(won,{type:'move',to:{r:1,c:3}}),won);
 });
@@ -67,9 +67,10 @@ test('passing is allowed only when no pawn move exists',()=>{
 test('all board layouts preserve routes for 2–4 players and eight available walls',()=>{
   for(const layout of ['Open','Crossroads','Switchback']) for(const count of [2,3,4]) {
     const g=createGame(count,true,layout);assert.ok(isGame(g));assert.equal(g.turn,0);assert.equal(g.moves,0);
-    assert.ok(g.players.every(p=>p.walls===8&&route(p.position,g.walls)));
+    assert.ok(g.players.every(p=>p.walls===8&&route(p.position,g.walls,g.goal)));
     assert.equal(g.walls.length,layout==='Open'?0:layout==='Crossroads'?5:7);
     const existing=[];
     for(const w of g.walls){assert.equal(wallError({...g,walls:existing,turn:w.owner},w),null);existing.push(w);}
   }
 });
+

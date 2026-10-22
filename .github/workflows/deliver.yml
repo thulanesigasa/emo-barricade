@@ -164,8 +164,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/release/app-release.apk "build-output/barricade-v${APP_VERSION}.apk"
-          gh release create "v${APP_VERSION}-build.${GITHUB_RUN_NUMBER}" build-output/barricade-v1.0.1.apk --target "$GITHUB_SHA" --title "Barricade ${APP_VERSION} — Android test build ${GITHUB_RUN_NUMBER}" --prerelease --notes-file docs/test-release.md
+          APK_PATH="build-output/barricade-v${APP_VERSION}.apk"
+          RELEASE_TAG="v${APP_VERSION}-build.${GITHUB_RUN_NUMBER}"
+          cp android/app/build/outputs/apk/release/app-release.apk "$APK_PATH"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$APK_PATH" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK_PATH" --target "$GITHUB_SHA" --title "Barricade ${APP_VERSION} — Android test build ${GITHUB_RUN_NUMBER}" --prerelease --notes-file docs/test-release.md
+          fi
       - name: Persist project link, dependency lock & successful native baseline
         run: |
           git config user.name 'github-actions[bot]'
@@ -190,3 +196,4 @@ jobs:
         run: eas update --channel production-1.0.1 --platform android --environment production --message "GitHub ${GITHUB_SHA}" --non-interactive
       - name: Publish preview OTA (runtime 1.0.1)
         run: eas update --channel preview-1.0.1 --platform android --environment preview --message "GitHub ${GITHUB_SHA}" --non-interactive
+

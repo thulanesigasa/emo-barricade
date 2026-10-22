@@ -1,6 +1,6 @@
 # Barricade
 
-An offline Expo / React Native strategy game, inspired by the supplied dark grid references. All players race from the bottom of an 11 × 11 board to any square on the gold top edge. Two to four players can play against the computer or share one device.
+An offline Expo / React Native strategy game, inspired by the supplied dark grid references. Players race across an 11 × 11 board to one specific gold goal square. Starting positions vary and are balanced by actual shortest-route distance through the starting walls. Two to four players can play against the computer or share one device.
 
 ## Navigation and appearance
 
@@ -10,11 +10,15 @@ CI retains a short-lived, unpublished web bundle for UI review. It does not depl
 
 ## Play
 
-Each turn, move your pawn one orthogonal square or spend one of eight two-edge barricades. Tap a neighbouring square to move. To place a wall, choose horizontal or vertical, tap the top-left square of a 2 × 2 area, inspect the preview and confirm. Walls cannot overlap, cross, or cut off any player's route. Jump over adjacent pawns, or diagonally around them if a straight jump is unavailable. First to the gold edge wins.
+Each turn, move your pawn one orthogonal square or spend one of eight two-edge barricades. Tap a neighbouring square to move. To place a wall, choose horizontal or vertical, tap the top-left square of a 2 × 2 area, inspect the preview and confirm. Walls cannot overlap, cross, or cut off any player's route. Jump over adjacent pawns, or diagonally around them if a straight jump is unavailable. First to the one gold square marked with a star wins. Other edge squares do not finish the level.
 
-This is a screenshot-inspired ruleset: all pawns share the top goal, rather than racing to opposite edges. Online multiplayer and accounts are not part of this version.
+## Levels and completion
 
-Choose Open, Crossroads, or Switchback starting layouts. Pre-placed walls leave every player a route and do not consume anyone’s eight available barricades. Suggest a move previews a legal move or wall without taking your turn. Undo restores your last full human turn including computer replies; the last 30 undo points persist with the saved match. Player cards show route distance through walls (excluding pawn occupancy). Old saves migrate automatically.
+There are 12 offline levels. Win level 1 to unlock level 2, and continue to level 12. Computer wins do not advance your progress; in pass & play, any human winner completes the level on this device. Completed levels remain available for replay. Completion is saved independently of the current match and shown on Home, Play and Profile. Undoing a winning move does not erase an already earned completion.
+
+Each level has a fixed goal square and deterministic starting walls/positions for the selected player count and Open, Crossroads or Switchback layout. Every player starts at the same shortest-route distance (at least six steps) from the goal, at least four Manhattan squares from any other player and from the goal. Distances are measured through walls; pawn jumps and future wall placements can change distances during play. Starting turns rotate between levels. Each player retains eight walls. No move dots, destination highlights or suggestion controls are shown.
+
+Old saves migrate to a single goal reachable by every player when possible. Legacy practice matches do not award campaign completion. If no common goal exists in an old disconnected position, start a new level. Undo snapshots retain the same goal and remain saved with the match.
 
 Matches and preferences save locally. Invalid saved data is rejected safely. Computer turns pause while the app is in the background or a match is paused. The original supplied logo is used unchanged for app icon, adaptive icon, splash and favicon.
 
@@ -44,10 +48,11 @@ GitHub APKs are intended for testing and use the native template's debug signing
 ## Test on a phone
 
 1. Open the latest successful [GitHub Release](https://github.com/thulanesigasa/emo-barricade/releases) and install the APK.
-2. Try 2–4 players in computer and pass & play modes. Place horizontal and vertical walls, test rejected placements, and reach the gold edge.
+2. Try 2–4 players in computer and pass & play modes. Place horizontal and vertical walls, test rejected placements, and reach the single gold goal square. Check equal starting distances, level unlocking after a human win, and retry after a computer win.
 3. Close/reopen the app mid-game; continue the saved match. Try airplane mode.
 4. After a compatible update, connect to the internet, open Settings → Check for updates, and restart when prompted.
 
 New commits supersede stale runs. Native generation, wrapper download and ARM APK compilation are separate bounded steps. Gradle uses its official GitHub distribution mirror, with cached dependencies and diagnostic log artifacts on failure. The APK supports ARM64 and ARMv7 phones; emulator x86 builds are not included.
 
 The initial delivery job may take several minutes. A failed job means the APK/OTA is not delivered; inspect its logs before retrying.
+

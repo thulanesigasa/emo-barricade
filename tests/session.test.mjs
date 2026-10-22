@@ -22,9 +22,10 @@ test('pass-and-play undo restores the immediately previous turn',()=>{
   const s=playTurn(original,{type:'move',to:legalMoves(original.game)[0]});
   assert.deepEqual(undoTurn(s),original);
 });
-test('suggestions never mutate a match and always produce a legal action',()=>{
+test('computer planning never mutates a match and always produces a legal action',()=>{
   for(const layout of ['Open','Crossroads','Switchback']){
     const game=createGame(4,true,layout),before=JSON.stringify(game),action=botAction(game);
     assert.equal(JSON.stringify(game),before);assert.notEqual(playTurn({game,undo:[]},action).game,game);
   }
 });
+
