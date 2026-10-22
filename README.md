@@ -2,6 +2,12 @@
 
 An offline Expo / React Native strategy game, inspired by the supplied dark grid references. All players race from the bottom of an 11 × 11 board to any square on the gold top edge. Two to four players can play against the computer or share one device.
 
+## Navigation and appearance
+
+Home, Play and Profile use a compact floating bottom bar with three destinations and a five-tab limit. Home gives quick access to setup and a saved match. Play contains match setup and the board. Profile stores a local player name, shows the current match, and provides preferences and update checks. Switching tabs preserves the match and pauses computer responses until Play is active. Main screens use open sections rather than boxed cards. The home logo is 220 points wide and the native splash uses a 160-point image width. Changing the native splash requires a replacement APK; runtime stays 1.0.1.
+
+CI retains a short-lived, unpublished web bundle for UI review. It does not deploy a website.
+
 ## Play
 
 Each turn, move your pawn one orthogonal square or spend one of eight two-edge barricades. Tap a neighbouring square to move. To place a wall, choose horizontal or vertical, tap the top-left square of a 2 × 2 area, inspect the preview and confirm. Walls cannot overlap, cross, or cut off any player's route. Jump over adjacent pawns, or diagonally around them if a straight jump is unavailable. First to the gold edge wins.

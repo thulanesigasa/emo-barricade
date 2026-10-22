@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, AppState, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { AccessibilityInfo, AppState, Alert, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,15 +8,21 @@ import { Action, LAYOUTS, Layout, Point, SIZE, Wall, botAction, createGame, lega
 
 import { Session, playTurn, restoreSession, undoTurn } from './src/session';
 
+import { FloatingTabs, MainTab } from './src/components/FloatingTabs';
+
 const KEY = 'barricade.v1.match';
 const PREFS = 'barricade.v1.preferences';
 const yellow = '#ffc928';
-type Screen = 'home' | 'game' | 'rules' | 'settings';
+type Screen = 'home' | 'play' | 'game' | 'profile' | 'rules';
 function Button({ title, onPress, secondary = false, disabled = false }: { title: string; onPress: () => void; secondary?: boolean; disabled?: boolean }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [s.button, secondary && s.secondaryButton, (pressed || disabled) && { opacity: 0.5 }]}><Text style={[s.buttonText, secondary && { color: '#fff' }]}>{title}</Text></Pressable>;
 }
 function Content() {
   const [screen, setScreen] = useState<Screen>('home');
+  const [selectedTab, setSelectedTab] = useState<MainTab>('Home');
+  const [displayName, setDisplayName] = useState('');
+  const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
   const [session, setSession] = useState<Session | null>(null);
   const game = session?.game ?? null;
   const [layout, setLayout] = useState<Layout>('Open');
@@ -42,7 +48,7 @@ function Content() {
     Promise.all([AsyncStorage.getItem(KEY), AsyncStorage.getItem(PREFS)]).then(([match, preferences]) => {
       if (!live) return;
       if (match) { try { const parsed = restoreSession(JSON.parse(match)); if (parsed) { setSession(parsed); setPlayers(parsed.game.players.length); setBots(parsed.game.players.some(p => p.bot)); setLayout(parsed.game.layout ?? 'Open'); } else setNotice('Your saved match could not be restored. Start a new game.'); } catch { setNotice('Your saved match could not be restored. Start a new game.'); } }
-      if (preferences) { try { const p = JSON.parse(preferences); setHints(p.hints !== false); setTactical(p.tactical !== false); } catch { /* Use defaults. */ } }
+      if (preferences) { try { const p = JSON.parse(preferences); setHints(p.hints !== false); setTactical(p.tactical !== false); if (typeof p.displayName === 'string') setDisplayName(p.displayName.slice(0, 24)); } catch { /* Use defaults. */ } }
     }).catch(() => { if (live) setNotice('Storage is unavailable. You can still play this session.'); }).finally(() => { if (live) setReady(true); });
     return () => { live = false; };
   }, []);
@@ -51,7 +57,11 @@ function Content() {
     const snapshot = JSON.stringify(session);
     saveQueue.current = saveQueue.current.then(() => AsyncStorage.setItem(KEY, snapshot)).catch(() => setNotice('Could not save this match. Keep the app open to continue.'));
   }, [session, ready]);
-  useEffect(() => { if (ready) AsyncStorage.setItem(PREFS, JSON.stringify({ hints, tactical })).catch(() => setNotice('Could not save settings.')); }, [hints, tactical, ready]);
+  useEffect(() => {
+    if (!ready) return;
+    const preferences = JSON.stringify({ hints, tactical, displayName });
+    saveQueue.current = saveQueue.current.then(() => AsyncStorage.setItem(PREFS, preferences)).catch(() => setNotice('Could not save settings.'));
+  }, [hints, tactical, displayName, ready]);
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => { setForeground(state === 'active'); if (state !== 'active') setPaused(true); });
     return () => sub.remove();
@@ -63,7 +73,18 @@ function Content() {
     return () => clearTimeout(timeout);
   }, [game, computer, screen, paused, tactical, foreground]);
   useEffect(() => { if (game && screen === 'game') AccessibilityInfo.announceForAccessibility(game.winner !== null ? game.log : `${game.players[game.turn].name}'s turn`); }, [game, screen]);
-  function start() { setSession({ game: createGame(players, bots, layout), undo: [] }); setSuggested(null); setScreen('game'); setMode('move'); setCandidate(null); setNotice(''); setPaused(false); setConfirmNew(false); }
+  useEffect(() => { scrollRef.current?.scrollTo({ y: 0, animated: false }); }, [screen]);
+  function navigateTab(tab: MainTab) {
+    Keyboard.dismiss();
+    setSelectedTab(tab); setPaused(false); setCandidate(null); setSuggested(null); setNotice('');
+    setScreen(tab === 'Home' ? 'home' : tab === 'Profile' ? 'profile' : game ? 'game' : 'play');
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
+  function openSetup() {
+    Keyboard.dismiss();
+    setSelectedTab('Play'); setScreen('play'); setPaused(false); setCandidate(null); setSuggested(null); setNotice('');
+  }
+  function start() { const next = createGame(players, bots, layout); next.players[0].name = displayName.trim() || 'You'; setSession({ game: next, undo: [] }); setSelectedTab('Play'); setSuggested(null); setScreen('game'); setMode('move'); setCandidate(null); setNotice(''); setPaused(false); setConfirmNew(false); }
   function submit(action: Action) {
     if (!game || computer || paused) return;
     setSession(current => current?.game === game ? playTurn(current, action) : current); setSuggested(null); setCandidate(null); setMode('move'); setNotice('');
@@ -111,19 +132,28 @@ function Content() {
     if (w.r < 0 || w.r > 9 || w.c < 0 || w.c > 9) return null;
     return <View pointerEvents="none" key={`${preview ? 'preview' : 'wall'}-${w.r}-${w.c}-${w.direction}`} style={{ position: 'absolute', left: horizontal ? w.c * unit + 3 : (w.c + 1) * unit - 3, top: horizontal ? (w.r + 1) * unit - 3 : w.r * unit + 3, width: horizontal ? unit * 2 - 6 : 6, height: horizontal ? 6 : unit * 2 - 6, backgroundColor: preview && candidateError ? '#ff4c78' : game?.players[w.owner].color, borderRadius: 4, opacity: preview ? 0.65 : 1, borderWidth: 1, borderColor: preview ? '#fff' : '#ffffff70' }} />;
   }
-  return <SafeAreaView style={s.safe}>
+  return <SafeAreaView edges={['top', 'left', 'right']} style={s.safe}>
     <StatusBar style="light" />
     <View style={s.topbar}>
-      <Pressable accessibilityRole="button" accessibilityLabel={screen === 'home' ? 'Barricade home' : 'Back to home'} onPress={() => { setScreen('home'); setCandidate(null); setNotice(''); }}><Text style={s.brand}>{screen === 'home' ? 'B /' : '‹'} <Text style={s.brandSmall}>BARRICADE</Text></Text></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel={screen === 'game' ? 'Pause game' : 'Settings'} onPress={() => { setNotice(''); screen === 'game' ? setPaused(true) : setScreen('settings'); }} style={s.iconButton}><Text style={{ color: '#fff', fontSize: 19 }}>{screen === 'game' ? 'Ⅱ' : '⚙'}</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={screen === 'home' ? 'Barricade home' : 'Back to home'} onPress={() => navigateTab('Home')}><Text style={s.brand}>{screen === 'home' ? 'B /' : '‹'} <Text style={s.brandSmall}>BARRICADE</Text></Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={screen === 'game' ? 'Pause game' : 'Settings'} onPress={() => { setNotice(''); if (screen === 'game') setPaused(true); else navigateTab('Profile'); }} style={s.iconButton}><Text style={{ color: '#fff', fontSize: 19 }}>{screen === 'game' ? 'Ⅱ' : '⚙'}</Text></Pressable>
     </View>
-    <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+    <ScrollView ref={scrollRef} contentContainerStyle={[s.content, { paddingBottom: 112 + insets.bottom }]} showsVerticalScrollIndicator={false}>
       {screen === 'home' && <>
         <View style={s.logoFrame}><Image source={require('./assets/icon.png')} style={s.logo} resizeMode="contain" accessibilityLabel="Barricade logo" /></View>
         <Text style={s.eyebrow}>A GAME OF PATHS & POSSIBILITIES</Text>
         <Text style={s.hero}>One move.{'\n'}Everything changes.</Text>
         <Text style={s.subtitle}>Race to the gold edge. Block their path.{'\n'}Keep your way out.</Text>
-        <View style={s.card}>
+        <Button title="Set up a match  ↗" disabled={!ready} onPress={openSetup} />
+        {game && game.winner === null && <Button secondary title="Continue your match" onPress={() => navigateTab('Play')} />}
+        <Pressable accessibilityRole="button" onPress={() => { setScreen('rules'); setNotice(''); }}><Text style={s.link}>New here? Learn how to play →</Text></Pressable>
+        <View style={s.sectionBlock}><Text style={s.section}>THINK AHEAD. FIND YOUR WAY.</Text><Text style={s.body}>Choose a board, challenge the computer, or pass the phone between friends. Your match stays with you when you switch tabs.</Text></View>
+        <Text style={s.footer}>NO ACCOUNT. NO CONNECTION. JUST STRATEGY.</Text>
+      </>}
+      {screen === 'play' && <>
+        <Text style={s.eyebrow}>PLAY YOUR WAY</Text><Text style={s.hero}>Set your table.</Text>
+        <Text style={s.subtitle}>A quick race or a tactical challenge. Make it yours.</Text>
+        <View style={s.sectionBlock}>
           <View style={s.row}><Text style={s.section}>SET YOUR TABLE</Text><Text style={s.muted}>OFFLINE • ON DEVICE</Text></View>
           <Text style={s.label}>PLAY WITH</Text>
           <View style={s.row}>{[true, false].map((value, i) => <Pressable accessibilityRole="button" accessibilityState={{ selected: bots === value }} key={i} onPress={() => setBots(value)} style={[s.choice, bots === value && s.choiceActive]}><Text style={[s.choiceText, bots === value && { color: yellow }]}>{value ? 'Computer' : 'Pass & play'}</Text></Pressable>)}</View>
@@ -133,14 +163,13 @@ function Content() {
           <View style={s.row}>{LAYOUTS.map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: layout === value }} onPress={() => setLayout(value)} style={[s.choice, layout === value && s.choiceActive]}><Text style={[s.choiceText, layout === value && { color: yellow }]}>{value}</Text></Pressable>)}</View>
           <Text style={s.hint}>{layout === 'Open' ? 'A clean board. Build your own obstacles.' : 'Pre-placed barricades create a new route to master. Everyone still has eight walls.'}</Text>
           <Button title="Start a match  ↗" disabled={!ready} onPress={() => game && game.winner === null ? setConfirmNew(true) : start()} />
-          {game && game.winner === null && <Button secondary title="Continue your match" onPress={() => { setScreen('game'); setPaused(false); setNotice(''); }} />}
+          {game && game.winner === null && <Button secondary title="Continue your match" onPress={() => navigateTab('Play')} />}
         </View>
-        <Pressable accessibilityRole="button" onPress={() => { setScreen('rules'); setNotice(''); }}><Text style={s.link}>New here? Learn how to play →</Text></Pressable>
-        <Text style={s.footer}>NO ACCOUNT. NO CONNECTION. JUST STRATEGY.</Text>
+        <Pressable accessibilityRole="button" onPress={() => setScreen('rules')}><Text style={s.link}>Read the playbook →</Text></Pressable>
       </>}
       {screen === 'game' && game && <>
         <View style={s.row}><View style={{ flex: 1 }}><Text style={s.eyebrow}>THE RACE IS ON</Text><Text style={s.heading}>{game.winner !== null ? `${game.players[game.winner].name} won!` : computer ? `${active?.name} is thinking…` : `${active?.name}'s move`}</Text></View><View style={s.roundBadge}><Text style={s.muted}>TURN</Text><Text style={s.turnNumber}>{game.moves + (game.winner === null ? 1 : 0)}</Text></View></View>
-        <View style={s.players}>{game.players.map((p, i) => <View key={i} style={[s.player, i === game.turn && { borderColor: p.color }]}><View style={[s.dot, { backgroundColor: p.color }]} /><Text style={s.playerName}>{p.name}</Text><Text style={s.muted}>{p.walls} walls</Text><Text style={s.muted}>{(route(p.position, game.walls)?.length ?? 1) - 1} route steps</Text></View>)}</View>
+        <View style={s.players}>{game.players.map((p, i) => <View key={i} style={[s.player, i === game.turn && { borderBottomColor: p.color }]}><View style={[s.dot, { backgroundColor: p.color }]} /><Text style={s.playerName}>{p.name}</Text><Text style={s.muted}>{p.walls} walls</Text><Text style={s.muted}>{(route(p.position, game.walls)?.length ?? 1) - 1} route steps</Text></View>)}</View>
         <View style={s.boardCard}>
           <Text style={s.activity}>{game.layout ?? 'Open'} board</Text>
           <Text style={s.goal}>↑  GOLD EDGE • FIRST TO REACH IT WINS  ↑</Text>
@@ -153,7 +182,7 @@ function Content() {
             {game.walls.map(w => wallView(w))}{candidate && wallView(candidate, true)}
           </View>
         </View>
-        {game.winner === null ? <View style={s.card}>
+        {game.winner === null ? <View style={s.sectionBlock}>
           <Text style={s.section}>{computer ? 'PLANNING THE NEXT MOVE' : 'YOUR MOVE, YOUR STRATEGY'}</Text>
           <View style={[s.row, { marginTop: 14 }]}>{(['move', 'h', 'v'] as const).map((value, i) => <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === value, disabled: computer }} disabled={computer} key={value} onPress={() => { setMode(value); setSuggested(null); setCandidate(null); setNotice(''); }} style={[s.choice, mode === value && s.choiceActive]}><Text style={[s.choiceText, mode === value && { color: yellow }]}>{['● Move', '━ Wall', '┃ Wall'][i]}</Text></Pressable>)}</View>
           <Text style={s.hint}>{mode === 'move' ? 'Tap a neighbouring square to move your pawn.' : 'Tap the top-left square of a 2 × 2 area to preview a wall, then confirm.'}</Text>
@@ -161,7 +190,7 @@ function Content() {
           <Text style={s.hint}>Route steps show the shortest path through walls, before accounting for other pawns. Undo restores your previous turn.</Text>
           {valid.length === 0 && !computer && <Button secondary title="No pawn move — pass turn" onPress={() => submit({ type: 'pass' })} />}
           {candidate && <Button title="Place barricade" disabled={!!candidateError || computer} onPress={() => submit({ type: 'wall', wall: candidate })} />}
-        </View> : <View style={s.card}><Text style={s.heading}>Path conquered.</Text><Text style={s.subtitle}>A well-played race. Ready for a rematch?</Text><Button title="Play again ↗" onPress={start} /><Button secondary title="Undo final turn" disabled={!session?.undo.length} onPress={undo} /><Button secondary title="Back to home" onPress={() => setScreen('home')} /></View>}
+        </View> : <View style={s.sectionBlock}><Text style={s.heading}>Path conquered.</Text><Text style={s.subtitle}>A well-played race. Ready for a rematch?</Text><Button title="Play again ↗" onPress={start} /><Button secondary title="Undo final turn" disabled={!session?.undo.length} onPress={undo} /><Button secondary title="Back to home" onPress={() => navigateTab('Home')} /></View>}
         <Text style={s.activity}>{game.log}</Text>
       </>}
       {screen === 'rules' && <>
@@ -174,23 +203,30 @@ function Content() {
           ['05', 'Practice your strategy', 'Choose Open, Crossroads or Switchback layouts. Suggest a move previews a legal move or barricade without spending your turn. Undo restores the position before your last move, including computer responses, and is saved with your match.'],
           ['06', 'Play anywhere', 'Choose 2–4 players. Computer mode gives you computer opponents; Pass & play lets everyone share one device. Matches save after every turn. If other pawns leave you without a legal pawn move, you can pass your turn.']
         ].map(([number, title, body]) => <View key={number} style={s.rule}><Text style={s.ruleNumber}>{number}</Text><View style={{ flex: 1 }}><Text style={s.ruleTitle}>{title}</Text><Text style={s.body}>{body}</Text></View></View>)}
-        <Button title={game && game.winner === null ? 'Return to match' : 'Let’s play ↗'} onPress={() => { if (game && game.winner === null) { setScreen('game'); setPaused(false); } else setScreen('home'); }} />
+        <Button title={game && game.winner === null ? 'Return to match' : 'Let’s play ↗'} onPress={() => { if (game && game.winner === null) { navigateTab('Play'); } else openSetup(); }} />
       </>}
-      {screen === 'settings' && <>
-        <Text style={s.eyebrow}>MAKE IT YOUR GAME</Text><Text style={s.hero}>The small details.</Text>
-        <View style={s.card}><Text style={s.ruleTitle}>Move hints</Text><Text style={s.body}>Highlight squares your pawn can reach.</Text><Button secondary title={hints ? 'Hints: On' : 'Hints: Off'} onPress={() => setHints(!hints)} /></View>
-        <View style={s.card}><Text style={s.ruleTitle}>Computer strategy</Text><Text style={s.body}>{tactical ? 'Tactical opponents move and place walls to slow you down.' : 'Relaxed opponents focus on finding their shortest route.'}</Text><Button secondary title={tactical ? 'Difficulty: Tactical' : 'Difficulty: Relaxed'} onPress={() => setTactical(!tactical)} /></View>
-        <View style={s.card}><Text style={s.ruleTitle}>App updates</Text><Text style={s.body}>Version 1.0.1 • Compatible updates: 1.0.1{ '\n' }Your game works offline. Connect only to download an update.</Text><Button secondary disabled={updating} title={updating ? 'Checking…' : 'Check for updates'} onPress={checkUpdates} /></View>
+      {screen === 'profile' && <>
+        <Text style={s.eyebrow}>YOUR CORNER</Text>
+        <View style={s.profileHeader}><View style={s.avatar}><Text style={s.avatarText}>{displayName.trim().slice(0, 1).toUpperCase() || 'B'}</Text></View><View style={{ flex: 1 }}><Text style={s.heading}>{displayName.trim() || 'Barricade player'}</Text><Text style={s.body}>Your game, on this device.</Text></View></View>
+        <View style={s.sectionBlock}><Text style={s.label}>PLAYER NAME</Text><TextInput accessibilityLabel="Player name" placeholder="Choose a name" placeholderTextColor="#64748b" maxLength={24} value={displayName} onChangeText={setDisplayName} autoCapitalize="words" autoCorrect={false} returnKeyType="done" style={s.nameInput} /><Text style={s.hint}>Saved automatically. Used when you start your next match.</Text></View>
+        <View style={s.sectionBlock}><Text style={s.ruleTitle}>Your match</Text><Text style={s.body}>{game ? `${game.players.length} players • ${game.layout ?? 'Open'} board • ${game.moves} turns played` : 'Your first race is waiting for you.'}</Text>{game && <Text style={s.hint}>{game.winner === null ? 'Your progress is saved and ready to continue.' : `${game.players[game.winner].name} won your last match.`}</Text>}<Button secondary title={game ? 'View your match →' : 'Start playing →'} disabled={!ready} onPress={() => navigateTab('Play')} /></View>
+        <Text style={s.eyebrow}>PREFERENCES</Text>
+        <View style={s.sectionBlock}><Text style={s.ruleTitle}>Move hints</Text><Text style={s.body}>Highlight squares your pawn can reach.</Text><Button secondary title={hints ? 'Hints: On' : 'Hints: Off'} onPress={() => setHints(!hints)} /></View>
+        <View style={s.sectionBlock}><Text style={s.ruleTitle}>Computer strategy</Text><Text style={s.body}>{tactical ? 'Tactical opponents move and place walls to slow you down.' : 'Relaxed opponents focus on finding their shortest route.'}</Text><Button secondary title={tactical ? 'Difficulty: Tactical' : 'Difficulty: Relaxed'} onPress={() => setTactical(!tactical)} /></View>
+        <View style={s.sectionBlock}><Text style={s.ruleTitle}>App updates</Text><Text style={s.body}>Barricade • Version 1.0.1{ '\n' }Your game works offline. Connect only to download an update.</Text><Button secondary disabled={updating} title={updating ? 'Checking…' : 'Check for updates'} onPress={checkUpdates} /></View>
         <Text style={s.footer}>BARRICADE • BUILT TO MAKE YOU THINK</Text>
       </>}
       {!!notice && <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={s.notice}>{notice}</Text>}
     </ScrollView>
-    <Modal transparent visible={paused && screen === 'game'} animationType="fade" onRequestClose={() => setPaused(false)}><View style={s.overlay}><View style={s.modal}><Text style={s.eyebrow}>TAKE A BREATHER</Text><Text style={s.heading}>Your next move can wait.</Text><Text style={s.body}>Your match is saved on this device.</Text><Button title="Resume match" onPress={() => setPaused(false)} /><Button secondary title="How to play" onPress={() => { setPaused(false); setScreen('rules'); }} /><Button secondary title="Leave to home" onPress={() => { setPaused(false); setScreen('home'); }} /></View></View></Modal>
+    <FloatingTabs active={selectedTab} onSelect={navigateTab} />
+    <Modal transparent visible={paused && screen === 'game'} animationType="fade" onRequestClose={() => setPaused(false)}><View style={s.overlay}><View style={s.modal}><Text style={s.eyebrow}>TAKE A BREATHER</Text><Text style={s.heading}>Your next move can wait.</Text><Text style={s.body}>Your match is saved on this device.</Text><Button title="Resume match" onPress={() => setPaused(false)} /><Button secondary title="How to play" onPress={() => { setPaused(false); setScreen('rules'); }} /><Button secondary title="Set up a new match" onPress={openSetup} /><Button secondary title="Leave to home" onPress={() => navigateTab('Home')} /></View></View></Modal>
     <Modal transparent visible={confirmNew} animationType="fade" onRequestClose={() => setConfirmNew(false)}><View style={s.overlay}><View style={s.modal}><Text style={s.heading}>Start a fresh match?</Text><Text style={s.body}>This replaces your unfinished saved match.</Text><Button title="Start new match" onPress={start} /><Button secondary title="Keep my match" onPress={() => setConfirmNew(false)} /></View></View></Modal>
   </SafeAreaView>;
 }
 export default function App() { return <SafeAreaProvider><Content /></SafeAreaProvider>; }
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#07090d' }, topbar: { width: '100%', maxWidth: 580, alignSelf: 'center', paddingHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#1c232d' }, brand: { color: yellow, fontSize: 24, fontWeight: '900' }, brandSmall: { color: '#fff', fontSize: 14, letterSpacing: 2 }, iconButton: { width: 44, height: 44, backgroundColor: '#161c25', borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  content: { padding: 18, paddingBottom: 40, width: '100%', maxWidth: 560, alignSelf: 'center' }, logoFrame: { height: 150, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', borderRadius: 22, overflow: 'hidden', marginBottom: 24 }, logo: { width: 330, height: 330 }, eyebrow: { color: yellow, fontSize: 10, fontWeight: '800', letterSpacing: 2, marginBottom: 12 }, hero: { color: '#f8f9fb', fontSize: 36, fontWeight: '900', letterSpacing: -1.2, lineHeight: 40, marginBottom: 14 }, subtitle: { color: '#a5afbf', fontSize: 15, lineHeight: 23, marginBottom: 20 }, card: { backgroundColor: '#111720', borderWidth: 1, borderColor: '#26303e', borderRadius: 20, padding: 18, marginBottom: 16 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8 }, section: { color: '#dce3ed', fontSize: 10, fontWeight: '800', letterSpacing: 1.3, flexShrink: 1 }, muted: { color: '#8a98ad', fontSize: 9, fontWeight: '700' }, label: { fontSize: 10, color: '#8592a6', letterSpacing: 1.5, fontWeight: '700', marginTop: 22, marginBottom: 9 }, choice: { flex: 1, borderWidth: 1, borderColor: '#2a3546', borderRadius: 12, paddingVertical: 14, alignItems: 'center' }, choiceActive: { backgroundColor: '#282414', borderColor: '#8e7427' }, choiceText: { color: '#b3bed0', fontSize: 13, fontWeight: '700' }, button: { minHeight: 50, paddingHorizontal: 15, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: yellow, marginTop: 14 }, secondaryButton: { backgroundColor: '#1c2532', borderWidth: 1, borderColor: '#354154' }, buttonText: { color: '#11151a', fontSize: 15, fontWeight: '800' }, link: { color: '#d8e0eb', fontSize: 13, textAlign: 'center', paddingVertical: 15 }, footer: { color: '#56657a', fontSize: 9, fontWeight: '700', letterSpacing: 1.2, textAlign: 'center', marginTop: 18 }, heading: { color: '#fff', fontWeight: '800', fontSize: 24, letterSpacing: -0.5, marginBottom: 8 }, roundBadge: { backgroundColor: '#18212d', padding: 12, borderRadius: 14, alignItems: 'center', minWidth: 56 }, turnNumber: { color: '#fff', fontSize: 20, fontWeight: '800' }, players: { flexDirection: 'row', gap: 6, marginVertical: 18 }, player: { flex: 1, borderRadius: 12, borderWidth: 1, borderColor: '#273040', backgroundColor: '#101720', padding: 10, gap: 5 }, playerName: { color: '#fff', fontSize: 11, fontWeight: '700' }, dot: { width: 9, height: 9, borderRadius: 5 }, boardCard: { marginBottom: 18 }, goal: { color: yellow, fontSize: 9, fontWeight: '800', letterSpacing: 1, textAlign: 'center', marginBottom: 10 }, cell: { flex: 1, backgroundColor: '#101923', borderWidth: 1, borderColor: '#253141', borderRadius: 4, justifyContent: 'center', alignItems: 'center' }, goldCell: { backgroundColor: '#e8b70d', borderColor: '#ffe27c' }, pawn: { borderRadius: 100, borderWidth: 2, borderColor: '#ffffff50', justifyContent: 'center', alignItems: 'center' }, moveDot: { width: 6, height: 6, borderRadius: 3, opacity: 0.8 }, hint: { color: '#8f9eb3', fontSize: 12, lineHeight: 18, marginTop: 12 }, activity: { color: '#8593a8', fontSize: 12, textAlign: 'center', marginTop: 5 }, notice: { color: '#ffe08c', backgroundColor: '#272312', padding: 14, lineHeight: 21, borderRadius: 12, marginTop: 16, fontSize: 13 }, rule: { flexDirection: 'row', gap: 16, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: '#232d3b' }, ruleNumber: { color: yellow, fontSize: 16, fontWeight: '800' }, ruleTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 }, body: { color: '#9ba9bd', fontSize: 14, lineHeight: 23 }, overlay: { flex: 1, backgroundColor: '#000c', alignItems: 'center', justifyContent: 'center', padding: 24 }, modal: { width: '100%', maxWidth: 420, backgroundColor: '#151d29', borderColor: '#344157', borderWidth: 1, borderRadius: 24, padding: 24 }
+  profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 16, marginVertical: 16 }, avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#ffc92818', alignItems: 'center', justifyContent: 'center' }, avatarText: { color: yellow, fontSize: 25, fontWeight: '800' }, nameInput: { color: '#fff', fontSize: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#344154' },
+  safe: { flex: 1, backgroundColor: '#000' }, topbar: { width: '100%', maxWidth: 580, alignSelf: 'center', paddingHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, brand: { color: yellow, fontSize: 24, fontWeight: '900' }, brandSmall: { color: '#fff', fontSize: 14, letterSpacing: 2 }, iconButton: { width: 44, height: 44, backgroundColor: '#161c25', borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  content: { padding: 18, paddingBottom: 40, width: '100%', maxWidth: 560, alignSelf: 'center' }, logoFrame: { height: 100, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 20 }, logo: { width: 220, height: 220 }, eyebrow: { color: yellow, fontSize: 10, fontWeight: '800', letterSpacing: 2, marginBottom: 12 }, hero: { color: '#f8f9fb', fontSize: 36, fontWeight: '900', letterSpacing: -1.2, lineHeight: 40, marginBottom: 14 }, subtitle: { color: '#a5afbf', fontSize: 15, lineHeight: 23, marginBottom: 20 }, sectionBlock: { paddingVertical: 16, marginBottom: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8 }, section: { color: '#dce3ed', fontSize: 10, fontWeight: '800', letterSpacing: 1.3, flexShrink: 1 }, muted: { color: '#8a98ad', fontSize: 9, fontWeight: '700' }, label: { fontSize: 10, color: '#8592a6', letterSpacing: 1.5, fontWeight: '700', marginTop: 22, marginBottom: 9 }, choice: { flex: 1, borderBottomWidth: 1, borderBottomColor: '#273040', paddingVertical: 14, alignItems: 'center' }, choiceActive: { borderBottomColor: yellow }, choiceText: { color: '#b3bed0', fontSize: 13, fontWeight: '700' }, button: { minHeight: 50, paddingHorizontal: 15, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: yellow, marginTop: 14 }, secondaryButton: { backgroundColor: 'transparent' }, buttonText: { color: '#11151a', fontSize: 15, fontWeight: '800' }, link: { color: '#d8e0eb', fontSize: 13, textAlign: 'center', paddingVertical: 15 }, footer: { color: '#56657a', fontSize: 9, fontWeight: '700', letterSpacing: 1.2, textAlign: 'center', marginTop: 18 }, heading: { color: '#fff', fontWeight: '800', fontSize: 24, letterSpacing: -0.5, marginBottom: 8 }, roundBadge: { padding: 12, alignItems: 'center', minWidth: 56 }, turnNumber: { color: '#fff', fontSize: 20, fontWeight: '800' }, players: { flexDirection: 'row', gap: 6, marginVertical: 18 }, player: { flex: 1, borderBottomWidth: 2, borderBottomColor: 'transparent', paddingVertical: 10, paddingHorizontal: 4, gap: 5 }, playerName: { color: '#fff', fontSize: 11, fontWeight: '700' }, dot: { width: 9, height: 9, borderRadius: 5 }, boardCard: { marginBottom: 18 }, goal: { color: yellow, fontSize: 9, fontWeight: '800', letterSpacing: 1, textAlign: 'center', marginBottom: 10 }, cell: { flex: 1, backgroundColor: '#101923', borderWidth: 1, borderColor: '#253141', borderRadius: 4, justifyContent: 'center', alignItems: 'center' }, goldCell: { backgroundColor: '#e8b70d', borderColor: '#ffe27c' }, pawn: { borderRadius: 100, borderWidth: 2, borderColor: '#ffffff50', justifyContent: 'center', alignItems: 'center' }, moveDot: { width: 6, height: 6, borderRadius: 3, opacity: 0.8 }, hint: { color: '#8f9eb3', fontSize: 12, lineHeight: 18, marginTop: 12 }, activity: { color: '#8593a8', fontSize: 12, textAlign: 'center', marginTop: 5 }, notice: { color: '#ffe08c', paddingVertical: 14, lineHeight: 21, marginTop: 12, fontSize: 13 }, rule: { flexDirection: 'row', gap: 16, paddingVertical: 20 }, ruleNumber: { color: yellow, fontSize: 16, fontWeight: '800' }, ruleTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 }, body: { color: '#9ba9bd', fontSize: 14, lineHeight: 23 }, overlay: { flex: 1, backgroundColor: '#000c', alignItems: 'center', justifyContent: 'center', padding: 24 }, modal: { width: '100%', maxWidth: 420, backgroundColor: '#151d29', borderColor: '#344157', borderWidth: 1, borderRadius: 24, padding: 24 }
 });
+

@@ -31,6 +31,14 @@ jobs:
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - run: npm run verify
       - run: npm run export:android
+      - name: Export web bundle for UI review
+        run: npx expo export --platform web --output-dir dist-web
+      - name: Retain UI review bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-review-bundle
+          path: dist-web/
+          retention-days: 3
       - name: Retain exact dependency resolution for delivery
         uses: actions/upload-artifact@v4
         with:
