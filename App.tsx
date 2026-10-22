@@ -36,7 +36,7 @@ function Content() {
     let live = true;
     Promise.all([AsyncStorage.getItem(KEY), AsyncStorage.getItem(PREFS)]).then(([match, preferences]) => {
       if (!live) return;
-      if (match) { try { const parsed: unknown = JSON.parse(match); if (isGame(parsed)) setGame(parsed); else setNotice('Your saved match could not be restored. Start a new game.'); } catch { setNotice('Your saved match could not be restored. Start a new game.'); } }
+      if (match) { try { const parsed: unknown = JSON.parse(match); if (isGame(parsed)) { setGame(parsed); setPlayers(parsed.players.length); setBots(parsed.players.some(p => p.bot)); } else setNotice('Your saved match could not be restored. Start a new game.'); } catch { setNotice('Your saved match could not be restored. Start a new game.'); } }
       if (preferences) { try { const p = JSON.parse(preferences); setHints(p.hints !== false); setTactical(p.tactical !== false); } catch { /* Use defaults. */ } }
     }).catch(() => { if (live) setNotice('Storage is unavailable. You can still play this session.'); }).finally(() => { if (live) setReady(true); });
     return () => { live = false; };
@@ -136,6 +136,7 @@ function Content() {
           <Text style={s.section}>{computer ? 'PLANNING THE NEXT MOVE' : 'YOUR MOVE, YOUR STRATEGY'}</Text>
           <View style={[s.row, { marginTop: 14 }]}>{(['move', 'h', 'v'] as const).map((value, i) => <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === value, disabled: computer }} disabled={computer} key={value} onPress={() => { setMode(value); setCandidate(null); setNotice(''); }} style={[s.choice, mode === value && s.choiceActive]}><Text style={[s.choiceText, mode === value && { color: yellow }]}>{['● Move', '━ Wall', '┃ Wall'][i]}</Text></Pressable>)}</View>
           <Text style={s.hint}>{mode === 'move' ? 'Tap a neighbouring square to move your pawn.' : 'Tap the top-left square of a 2 × 2 area to preview a wall, then confirm.'}</Text>
+          {valid.length === 0 && !computer && <Button secondary title="No pawn move — pass turn" onPress={() => submit({ type: 'pass' })} />}
           {candidate && <Button title="Place barricade" disabled={!!candidateError || computer} onPress={() => submit({ type: 'wall', wall: candidate })} />}
         </View> : <View style={s.card}><Text style={s.heading}>Path conquered.</Text><Text style={s.subtitle}>A well-played race. Ready for a rematch?</Text><Button title="Play again ↗" onPress={start} /><Button secondary title="Back to home" onPress={() => setScreen('home')} /></View>}
         <Text style={s.activity}>{game.log}</Text>
@@ -147,7 +148,7 @@ function Content() {
           ['02', 'Move or barricade', 'On your turn, move one square up, down, left or right — or place one of your eight barricades. A barricade covers two square edges.'],
           ['03', 'Find another way', 'Walls cannot overlap or cross. Every player must always have a route to the gold edge. Illegal placements are rejected before your turn is spent.'],
           ['04', 'Jump ahead', 'If a pawn is directly beside you, jump over it when the next square is free. If a wall, edge or another pawn stops the jump, step around it diagonally.'],
-          ['05', 'Play anywhere', 'Choose 2–4 players. Computer mode gives you computer opponents; Pass & play lets everyone share one device. Matches save after every turn.']
+          ['05', 'Play anywhere', 'Choose 2–4 players. Computer mode gives you computer opponents; Pass & play lets everyone share one device. Matches save after every turn. If other pawns leave you without a legal pawn move, you can pass your turn.']
         ].map(([number, title, body]) => <View key={number} style={s.rule}><Text style={s.ruleNumber}>{number}</Text><View style={{ flex: 1 }}><Text style={s.ruleTitle}>{title}</Text><Text style={s.body}>{body}</Text></View></View>)}
         <Button title={game && game.winner === null ? 'Return to match' : 'Let’s play ↗'} onPress={() => { if (game && game.winner === null) { setScreen('game'); setPaused(false); } else setScreen('home'); }} />
       </>}

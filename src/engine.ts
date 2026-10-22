@@ -4,7 +4,7 @@ export type Point = { r: number; c: number };
 export type Wall = Point & { direction: 'h' | 'v'; owner: number };
 export type Player = { name: string; color: string; position: Point; walls: number; bot: boolean };
 export type Game = { players: Player[]; walls: Wall[]; turn: number; winner: number | null; moves: number; log: string };
-export type Action = { type: 'move'; to: Point } | { type: 'wall'; wall: Wall };
+export type Action = { type: 'move'; to: Point } | { type: 'wall'; wall: Wall } | { type: 'pass' };
 export const same = (a: Point, b: Point) => a.r === b.r && a.c === b.c;
 const inside = (p: Point) => Number.isInteger(p.r) && Number.isInteger(p.c) && p.r >= 0 && p.r < SIZE && p.c >= 0 && p.c < SIZE;
 const directions = [[-1, 0], [0, -1], [0, 1], [1, 0]];
@@ -61,7 +61,10 @@ export function applyAction(game: Game, action: Action): Game {
   if (game.winner !== null) return game;
   const next: Game = { ...game, players: game.players.map(p => ({ ...p, position: { ...p.position } })), walls: [...game.walls] };
   const player = next.players[game.turn];
-  if (action.type === 'move') {
+  if (action.type === 'pass') {
+    if (legalMoves(game).length > 0) return game;
+    next.log = `${player.name} had no available pawn move and passed.`;
+  } else if (action.type === 'move') {
     if (!legalMoves(game).some(p => same(p, action.to))) return game;
     player.position = { ...action.to };
     next.log = `${player.name} moved a step closer.`;
@@ -79,7 +82,7 @@ export function botAction(game: Game, tactical = true): Action {
   const index = game.turn, player = game.players[index], moves = legalMoves(game);
   const distance = (p: Point, walls: Wall[]) => (route(p, walls)?.length ?? 999) - 1;
   const best = [...moves].sort((a, b) => distance(a, game.walls) - distance(b, game.walls))[0];
-  if (!best) throw new Error('No legal move');
+  if (!best) return { type: 'pass' };
   if (best.r === 0) return { type: 'move', to: best };
   if (tactical && player.walls > 0) {
     const opponents = game.players.map((p, i) => ({ p, i, d: distance(p.position, game.walls) })).filter(x => x.i !== index).sort((a, b) => a.d - b.d);

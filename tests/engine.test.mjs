@@ -52,3 +52,15 @@ test('invalid persisted data is rejected',()=>{
   const g=createGame();g.players[0].position.c=NaN;assert.equal(isGame(g),false);
   const other=createGame();other.turn=9;assert.equal(isGame(other),false);
 });
+test('passing is allowed only when no pawn move exists',()=>{
+  const g=createGame(4,false);
+  assert.equal(applyAction(g,{type:'pass'}),g);
+  g.players[0].position={r:10,c:0};
+  g.players[1].position={r:9,c:0};
+  g.players[2].position={r:8,c:0};
+  g.players[3].position={r:10,c:9};
+  g.walls=[{r:9,c:0,direction:'v',owner:1}];
+  assert.equal(legalMoves(g).length,0);
+  assert.equal(botAction(g).type,'pass');
+  const next=applyAction(g,{type:'pass'});assert.equal(next.turn,1);assert.equal(next.moves,1);
+});

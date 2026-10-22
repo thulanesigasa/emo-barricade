@@ -87,6 +87,8 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
         if: steps.plan.outputs.build == 'true'
+        with:
+          packages: platform-tools
       - name: Compile installable Android testing APK
         if: steps.plan.outputs.build == 'true'
         run: |
@@ -131,6 +133,13 @@ jobs:
         run: |
           npm run check:runtime
           node scripts/native-baseline.mjs
+      - name: Ensure update channels exist
+        run: |
+          for channel in production-1.0.1 preview-1.0.1; do
+            if ! eas channel:view "$channel" --json >/dev/null 2>&1; then
+              eas channel:create "$channel" --non-interactive
+            fi
+          done
       - name: Publish production OTA (runtime 1.0.1)
         run: eas update --channel production-1.0.1 --platform android --environment production --message "GitHub ${GITHUB_SHA}" --non-interactive
       - name: Publish preview OTA (runtime 1.0.1)
