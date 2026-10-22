@@ -22,7 +22,7 @@ export function FloatingTabs({ active, onSelect }: { active: MainTab; onSelect: 
   return <View accessibilityRole="tablist" style={[s.pill, { width: pillWidth, left: (width - pillWidth) / 2, bottom: Math.max(insets.bottom, 12) + 8 }]}>
     {tabs.map(tab => {
       const selected = tab === active;
-      const color = selected ? ACCENT : '#8b98ac';
+      const color = selected ? ACCENT : '#fff';
       return <Pressable key={tab} accessibilityRole="tab" accessibilityLabel={tab} accessibilityState={{ selected }} onPress={() => onSelect(tab)} hitSlop={2} style={({ pressed }) => [s.tab, pressed && { opacity: 0.55 }]}>
         <TabIcon tab={tab} color={color} />
         <Text maxFontSizeMultiplier={1.5} style={[s.label, { color, fontWeight: selected ? '800' : '500' }]}>{tab}</Text>
@@ -32,7 +32,7 @@ export function FloatingTabs({ active, onSelect }: { active: MainTab; onSelect: 
   </View>;
 }
 const s = StyleSheet.create({
-  pill: { position: 'absolute', height: 60, borderRadius: 21, backgroundColor: '#141b25', borderWidth: 1, borderColor: '#ffffff0f', flexDirection: 'row', alignItems: 'center', paddingVertical: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 8 },
+  pill: { position: 'absolute', height: 60, borderRadius: 21, backgroundColor: '#000', borderWidth: 1, borderColor: '#ffffff50', flexDirection: 'row', alignItems: 'center', paddingVertical: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 8 },
   tab: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', gap: 3 },
   label: { fontSize: 10 }, indicator: { width: 4, height: 4, borderRadius: 2 },
   icon: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },

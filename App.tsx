@@ -4,11 +4,13 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-
 import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Action, LAYOUTS, LEVEL_COUNT, Layout, Point, SIZE, Wall, botAction, createGame, legalMoves, route, same, wallError } from './src/engine';
+import { Action, LAYOUTS, LEVEL_COUNT, Layout, Point, Wall, botAction, createGame, legalMoves, route, same, wallError } from './src/engine';
 
 import { Session, playTurn, restoreSession, undoTurn } from './src/session';
 
 import { FloatingTabs, MainTab } from './src/components/FloatingTabs';
+
+import { GameBoard } from './src/components/GameBoard';
 
 import { Progress, isUnlocked, recordCompletion, restoreProgress } from './src/progression';
 
@@ -35,8 +37,6 @@ function Content() {
   const [players, setPlayers] = useState(2);
   const [bots, setBots] = useState(true);
   const [tactical, setTactical] = useState(true);
-  const [mode, setMode] = useState<'move' | 'h' | 'v'>('move');
-  const [candidate, setCandidate] = useState<Wall | null>(null);
   const [notice, setNotice] = useState('');
   const [paused, setPaused] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
@@ -45,7 +45,6 @@ function Content() {
   const saveQueue = useRef(Promise.resolve());
   const dimensions = useWindowDimensions();
   const boardWidth = Math.min(dimensions.width - 36, 520);
-  const unit = boardWidth / SIZE;
   useEffect(() => {
     let live = true;
     Promise.all([AsyncStorage.getItem(KEY), AsyncStorage.getItem(PREFS), AsyncStorage.getItem(PROGRESS)]).then(([match, preferences, savedProgress]) => {
@@ -81,47 +80,48 @@ function Content() {
   const computer = !!game?.players[game.turn].bot;
   useEffect(() => {
     if (screen !== 'game' || !game || game.winner !== null || !computer || paused || !foreground) return;
-    const timeout = setTimeout(() => { setSession(current => current?.game === game ? playTurn(current, botAction(game, tactical), false) : current); setCandidate(null); setMode('move'); }, 650);
+    const timeout = setTimeout(() => { setSession(current => current?.game === game ? playTurn(current, botAction(game, tactical), false) : current); }, 650);
     return () => clearTimeout(timeout);
   }, [game, computer, screen, paused, tactical, foreground]);
   useEffect(() => { if (game && screen === 'game') AccessibilityInfo.announceForAccessibility(game.winner !== null ? game.log : `${game.players[game.turn].name}'s turn`); }, [game, screen]);
   useEffect(() => { scrollRef.current?.scrollTo({ y: 0, animated: false }); }, [screen]);
   function navigateTab(tab: MainTab) {
     Keyboard.dismiss();
-    setSelectedTab(tab); setPaused(false); setCandidate(null); setNotice('');
+    setSelectedTab(tab); setPaused(false); setNotice('');
     setScreen(tab === 'Home' ? 'home' : tab === 'Profile' ? 'profile' : game ? 'game' : 'play');
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }
   function openSetup() {
     Keyboard.dismiss();
-    setSelectedTab('Play'); setScreen('play'); setPaused(false); setCandidate(null); setNotice('');
+    setSelectedTab('Play'); setScreen('play'); setPaused(false); setNotice('');
   }
   function beginLevel(level: number) {
     if (!ready || !isUnlocked(progress, level)) return;
     const next = createGame(players, bots, layout, level);
     next.players[0].name = displayName.trim() || 'You';
     setSession({ game: next, undo: [] }); setSelectedLevel(level); setSelectedTab('Play');
-    setScreen('game'); setMode('move'); setCandidate(null); setNotice(''); setPaused(false); setConfirmNew(false);
+    setScreen('game'); setNotice(''); setPaused(false); setConfirmNew(false);
   }
   function start() { beginLevel(selectedLevel); }
   function submit(action: Action) {
     if (!game || computer || paused) return;
-    setSession(current => current?.game === game ? playTurn(current, action) : current); setCandidate(null); setMode('move'); setNotice('');
+    setSession(current => current?.game === game ? playTurn(current, action) : current); setNotice('');
   }
   function undo() {
     if (!session?.undo.length) return;
     setSession(current => current ? undoTurn(current) : current);
-    setCandidate(null); setMode('move'); setNotice('Turn undone — including computer responses.');
+    setNotice('Turn undone — including computer responses.');
   }
   function tap(p: Point) {
     if (!game || computer || game.winner !== null || paused) return;
-    if (mode === 'move') {
-      if (legalMoves(game).some(x => same(x, p))) submit({ type: 'move', to: p });
-      else setNotice('Move one square or jump a neighbouring pawn. Barricades block movement.');
-    } else {
-      const wall: Wall = { ...p, direction: mode, owner: game.turn };
-      setCandidate(wall); setNotice(wallError(game, wall) ?? 'Tap Place barricade to confirm.');
-    }
+    if (legalMoves(game).some(x => same(x, p))) submit({ type: 'move', to: p });
+    else setNotice('Move one square or jump a neighbouring pawn. Tap a gap to place a barricade.');
+  }
+  function placeWall(wall: Wall) {
+    if (!game || computer || game.winner !== null || paused) return;
+    const error = wallError(game, wall);
+    if (error) { setNotice(error); return; }
+    submit({ type: 'wall', wall });
   }
   async function checkUpdates() {
     if (updating) return;
@@ -138,17 +138,11 @@ function Content() {
   }
   const active = game?.players[game.turn];
   const valid = game && game.winner === null ? legalMoves(game) : [];
-  const candidateError = game && candidate ? wallError(game, candidate) : null;
-  function wallView(w: Wall, preview = false) {
-    const horizontal = w.direction === 'h';
-    if (w.r < 0 || w.r > 9 || w.c < 0 || w.c > 9) return null;
-    return <View pointerEvents="none" key={`${preview ? 'preview' : 'wall'}-${w.r}-${w.c}-${w.direction}`} style={{ position: 'absolute', left: horizontal ? w.c * unit + 3 : (w.c + 1) * unit - 3, top: horizontal ? (w.r + 1) * unit - 3 : w.r * unit + 3, width: horizontal ? unit * 2 - 6 : 6, height: horizontal ? 6 : unit * 2 - 6, backgroundColor: preview && candidateError ? '#ff4c78' : game?.players[w.owner].color, borderRadius: 4, opacity: preview ? 0.65 : 1, borderWidth: 1, borderColor: preview ? '#fff' : '#ffffff70' }} />;
-  }
   return <SafeAreaView edges={['top', 'left', 'right']} style={s.safe}>
     <StatusBar style="light" />
     <View style={s.topbar}>
-      <Pressable accessibilityRole="button" accessibilityLabel={screen === 'home' ? 'Barricade home' : 'Back to home'} onPress={() => navigateTab('Home')}><Text style={s.brand}>{screen === 'home' ? 'B /' : '‹'} <Text style={s.brandSmall}>BARRICADE</Text></Text></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel={screen === 'game' ? 'Pause game' : 'Settings'} onPress={() => { setNotice(''); if (screen === 'game') setPaused(true); else navigateTab('Profile'); }} style={s.iconButton}><Text style={{ color: '#fff', fontSize: 19 }}>{screen === 'game' ? 'Ⅱ' : '⚙'}</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Barricade home" onPress={() => navigateTab('Home')} style={s.headerLogoFrame}><Image source={require('./assets/icon.png')} style={s.headerLogo} resizeMode="contain" /></Pressable>
+      {screen === 'game' && game && game.winner === null && <Pressable accessibilityRole="button" accessibilityLabel="Pause game" onPress={() => { setNotice(''); setPaused(true); }} style={s.pause}><Text style={s.pauseText}>Ⅱ  Pause</Text></Pressable>}
     </View>
     <ScrollView ref={scrollRef} contentContainerStyle={[s.content, { paddingBottom: 112 + insets.bottom }]} showsVerticalScrollIndicator={false}>
       {screen === 'home' && <>
@@ -188,28 +182,18 @@ function Content() {
       </>}
       {screen === 'game' && game && <>
         <View style={s.row}><View style={{ flex: 1 }}><Text style={s.eyebrow}>{game.level ? `LEVEL ${game.level} OF ${LEVEL_COUNT}` : 'PRACTICE MATCH'}</Text><Text style={s.heading}>{game.winner !== null ? `${game.players[game.winner].name} won!` : computer ? `${active?.name} is thinking…` : `${active?.name}'s move`}</Text></View><View style={s.roundBadge}><Text style={s.muted}>TURN</Text><Text style={s.turnNumber}>{game.moves + (game.winner === null ? 1 : 0)}</Text></View></View>
-        <View style={s.players}>{game.players.map((p, i) => <View key={i} style={[s.player, i === game.turn && { borderBottomColor: p.color }]}><View style={[s.dot, { backgroundColor: p.color }]} /><Text style={s.playerName}>{p.name}</Text><Text style={s.muted}>{p.walls} walls</Text><Text style={s.muted}>{(route(p.position, game.walls, game.goal)?.length ?? 1) - 1} goal steps</Text></View>)}</View>
+        <View style={s.players}>{game.players.map((p, i) => <View key={i} style={[s.player, i === game.turn && { borderBottomColor: yellow }]}><Text style={[s.playerIndex, { color: i === game.turn ? yellow : '#fff' }]}>{String(i + 1).padStart(2, '0')}</Text><Text style={s.playerName}>{p.name}</Text><Text style={s.muted}>{p.walls} walls</Text><Text style={s.muted}>{(route(p.position, game.walls, game.goal)?.length ?? 1) - 1} goal steps</Text></View>)}</View>
         <View style={s.boardCard}>
           <Text style={s.activity}>{game.layout ?? 'Open'} board</Text>
           <Text style={s.goal}>ONE GOLD SQUARE • FIRST TO REACH IT WINS</Text>
           {game.startDistance !== undefined && <Text style={s.activity}>Fair start: {game.startDistance} route steps for every player</Text>}
-          <View style={{ width: boardWidth, height: boardWidth, alignSelf: 'center' }} accessibilityLabel="11 by 11 game board">
-            {Array.from({ length: SIZE }, (_, r) => <View key={r} style={{ flexDirection: 'row' }}>{Array.from({ length: SIZE }, (_, c) => {
-              const pawn = game.players.find(p => same(p.position, { r, c }));
-              const goalSquare = same(game.goal, { r, c });
-              return <Pressable key={c} accessibilityRole="button" accessibilityLabel={`Row ${r + 1}, column ${c + 1}${pawn ? `, ${pawn.name}` : ''}${goalSquare ? ', gold goal' : ''}`} disabled={computer || game.winner !== null || paused} onPress={() => tap({ r, c })} style={{ width: unit, height: unit, padding: 2 }}><View style={[s.cell, goalSquare && s.goldCell]}>{pawn ? <View style={[s.pawn, { backgroundColor: pawn.color, width: unit * 0.57, height: unit * 0.57 }]}><Text style={{ color: '#071017', fontSize: Math.max(10, unit * 0.28), fontWeight: '900' }}>{game.players.indexOf(pawn) + 1}</Text></View> : goalSquare ? <Text style={{ color: '#171300', fontSize: unit * 0.48, fontWeight: '900' }}>★</Text> : null}</View></Pressable>;
-            })}</View>)}
-            {game.walls.map(w => wallView(w))}{candidate && wallView(candidate, true)}
-          </View>
+          <GameBoard game={game} width={boardWidth} disabled={computer || game.winner !== null || paused} onMove={tap} onWall={placeWall} />
         </View>
         {game.winner === null ? <View style={s.sectionBlock}>
-          <Text style={s.section}>{computer ? 'PLANNING THE NEXT MOVE' : 'YOUR MOVE, YOUR STRATEGY'}</Text>
-          <View style={[s.row, { marginTop: 14 }]}>{(['move', 'h', 'v'] as const).map((value, i) => <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === value, disabled: computer }} disabled={computer} key={value} onPress={() => { setMode(value); setCandidate(null); setNotice(''); }} style={[s.choice, mode === value && s.choiceActive]}><Text style={[s.choiceText, mode === value && { color: yellow }]}>{['● Move', '━ Wall', '┃ Wall'][i]}</Text></Pressable>)}</View>
-          <Text style={s.hint}>{mode === 'move' ? 'Tap a neighbouring square to move your pawn.' : 'Tap the top-left square of a 2 × 2 area to preview a wall, then confirm.'}</Text>
-          <View style={s.row}><View style={{ flex: 1 }}><Button secondary title="Undo turn" disabled={computer || !session?.undo.length} onPress={undo} /></View></View>
-          <Text style={s.hint}>Choose your own path to the single gold square. Undo restores your previous turn.</Text>
+          <Text style={s.section}>{computer ? 'PLANNING THE NEXT MOVE' : 'TAP A SQUARE. OR BUILD A BARRICADE.'}</Text>
+          <Text style={s.hint}>Tap a square to move. Tap a horizontal or vertical gap to place a two-square barricade immediately.</Text>
+          <View style={s.row}><Pressable accessibilityRole="button" disabled={computer || !session?.undo.length} onPress={undo} style={{ paddingVertical: 16, opacity: computer || !session?.undo.length ? 0.4 : 1 }}><Text style={{ color: yellow, fontWeight: '800' }}>↶ Undo turn</Text></Pressable></View>
           {valid.length === 0 && !computer && <Button secondary title="No pawn move — pass turn" onPress={() => submit({ type: 'pass' })} />}
-          {candidate && <Button title="Place barricade" disabled={!!candidateError || computer} onPress={() => submit({ type: 'wall', wall: candidate })} />}
         </View> : <View style={s.sectionBlock}><Text style={s.heading}>{game.players[game.winner].bot ? 'Try another strategy.' : game.level ? `Level ${game.level} complete!` : 'Path conquered.'}</Text><Text style={s.subtitle}>{game.players[game.winner].bot ? 'The computer reached the gold first. Retry to unlock the next level.' : game.level ? 'You reached the goal. Your completion is saved on this device.' : 'Practice match completed. Choose a level to begin the campaign.'}</Text>{game.level && game.level < LEVEL_COUNT && isUnlocked(progress, game.level + 1) ? <Button title={`Next level: ${game.level + 1} →`} onPress={() => beginLevel(game.level! + 1)} /> : null}{progress.completed.length === LEVEL_COUNT && <Text style={s.body}>All {LEVEL_COUNT} levels completed!</Text>}<Button title="Replay level" onPress={() => beginLevel(game.level ?? selectedLevel)} /><Button secondary title="Undo final turn" disabled={!session?.undo.length} onPress={undo} /><Button secondary title="Back to home" onPress={() => navigateTab('Home')} /></View>}
         <Text style={s.activity}>{game.log}</Text>
       </>}
@@ -217,7 +201,7 @@ function Content() {
         <Text style={s.eyebrow}>THE PLAYBOOK</Text><Text style={s.hero}>Simple rules.{'\n'}Clever decisions.</Text>
         {[
           ['01', 'Chase the gold', 'Reach the one gold square marked with a star. Each level moves the goal and starting positions. New levels give every player equal shortest-route distances through the walls and keep starting pawns separated.'],
-          ['02', 'Move or barricade', 'On your turn, move one square up, down, left or right — or place one of your eight barricades. A barricade covers two square edges.'],
+          ['02', 'Move or barricade', 'On your turn, move one square up, down, left or right — or place one of your eight barricades. Tap a horizontal gap for a horizontal barricade, or a vertical gap for a vertical one. It is placed immediately and covers two square edges. Use Undo to take back your turn.'],
           ['03', 'Find another way', 'Walls cannot overlap or cross. Every player must always have a route to the single gold square. Illegal placements are rejected before your turn is spent.'],
           ['04', 'Jump ahead', 'If a pawn is directly beside you, jump over it when the next square is free. If a wall, edge or another pawn stops the jump, step around it diagonally.'],
           ['05', 'Practice your strategy', 'Win a level to unlock the next one. In computer mode, you must beat the computer; in pass & play, a human winner completes the level for this device. Open, Crossroads and Switchback add variety. Undo is saved with your match.'],
@@ -228,7 +212,7 @@ function Content() {
       {screen === 'profile' && <>
         <Text style={s.eyebrow}>YOUR CORNER</Text>
         <View style={s.profileHeader}><View style={s.avatar}><Text style={s.avatarText}>{displayName.trim().slice(0, 1).toUpperCase() || 'B'}</Text></View><View style={{ flex: 1 }}><Text style={s.heading}>{displayName.trim() || 'Barricade player'}</Text><Text style={s.body}>Your game, on this device.</Text></View></View>
-        <View style={s.sectionBlock}><Text style={s.label}>PLAYER NAME</Text><TextInput accessibilityLabel="Player name" placeholder="Choose a name" placeholderTextColor="#64748b" maxLength={24} value={displayName} onChangeText={setDisplayName} autoCapitalize="words" autoCorrect={false} returnKeyType="done" style={s.nameInput} /><Text style={s.hint}>Saved automatically. Used when you start your next match.</Text></View>
+        <View style={s.sectionBlock}><Text style={s.label}>PLAYER NAME</Text><TextInput accessibilityLabel="Player name" placeholder="Choose a name" placeholderTextColor="#fff" maxLength={24} value={displayName} onChangeText={setDisplayName} autoCapitalize="words" autoCorrect={false} returnKeyType="done" style={s.nameInput} /><Text style={s.hint}>Saved automatically. Used when you start your next match.</Text></View>
         <View style={s.sectionBlock}><Text style={s.ruleTitle}>Your match</Text><Text style={s.body}>{game ? `${game.players.length} players • ${game.layout ?? 'Open'} board • ${game.moves} turns played` : 'Your first race is waiting for you.'}</Text>{game && <Text style={s.hint}>{game.winner === null ? 'Your progress is saved and ready to continue.' : `${game.players[game.winner].name} won your last match.`}</Text>}<Button secondary title={game ? 'View your match →' : 'Start playing →'} disabled={!ready} onPress={() => navigateTab('Play')} /></View>
         <View style={s.sectionBlock}><Text style={s.ruleTitle}>Level progress</Text><Text style={s.heading}>{progress.completed.length} / {LEVEL_COUNT} completed</Text><Text style={s.body}>{progress.completed.length === LEVEL_COUNT ? 'Every level conquered. Replay any level.' : `Next challenge: level ${progress.completed.length + 1}. Win to keep progressing.`}</Text><Button secondary title="Choose a level →" onPress={openSetup} /></View>
         <Text style={s.eyebrow}>PREFERENCES</Text>
@@ -245,10 +229,10 @@ function Content() {
 }
 export default function App() { return <SafeAreaProvider><Content /></SafeAreaProvider>; }
 const s = StyleSheet.create({
-  levelGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 16 }, levelChoice: { flexBasis: '30%', flexGrow: 1, borderBottomWidth: 1, borderBottomColor: '#273040', paddingVertical: 14, minHeight: 56, alignItems: 'center', gap: 5 },
-  profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 16, marginVertical: 16 }, avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#ffc92818', alignItems: 'center', justifyContent: 'center' }, avatarText: { color: yellow, fontSize: 25, fontWeight: '800' }, nameInput: { color: '#fff', fontSize: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#344154' },
-  safe: { flex: 1, backgroundColor: '#000' }, topbar: { width: '100%', maxWidth: 580, alignSelf: 'center', paddingHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, brand: { color: yellow, fontSize: 24, fontWeight: '900' }, brandSmall: { color: '#fff', fontSize: 14, letterSpacing: 2 }, iconButton: { width: 44, height: 44, backgroundColor: '#161c25', borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  content: { padding: 18, paddingBottom: 40, width: '100%', maxWidth: 560, alignSelf: 'center' }, logoFrame: { height: 70, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 20 }, logo: { width: 150, height: 150 }, eyebrow: { color: yellow, fontSize: 10, fontWeight: '800', letterSpacing: 2, marginBottom: 12 }, hero: { color: '#f8f9fb', fontSize: 36, fontWeight: '900', letterSpacing: -1.2, lineHeight: 40, marginBottom: 14 }, subtitle: { color: '#a5afbf', fontSize: 15, lineHeight: 23, marginBottom: 20 }, sectionBlock: { paddingVertical: 16, marginBottom: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8 }, section: { color: '#dce3ed', fontSize: 10, fontWeight: '800', letterSpacing: 1.3, flexShrink: 1 }, muted: { color: '#8a98ad', fontSize: 9, fontWeight: '700' }, label: { fontSize: 10, color: '#8592a6', letterSpacing: 1.5, fontWeight: '700', marginTop: 22, marginBottom: 9 }, choice: { flex: 1, borderBottomWidth: 1, borderBottomColor: '#273040', paddingVertical: 14, alignItems: 'center' }, choiceActive: { borderBottomColor: yellow }, choiceText: { color: '#b3bed0', fontSize: 13, fontWeight: '700' }, button: { minHeight: 50, paddingHorizontal: 15, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: yellow, marginTop: 14 }, secondaryButton: { backgroundColor: 'transparent' }, buttonText: { color: '#11151a', fontSize: 15, fontWeight: '800' }, link: { color: '#d8e0eb', fontSize: 13, textAlign: 'center', paddingVertical: 15 }, footer: { color: '#56657a', fontSize: 9, fontWeight: '700', letterSpacing: 1.2, textAlign: 'center', marginTop: 18 }, heading: { color: '#fff', fontWeight: '800', fontSize: 24, letterSpacing: -0.5, marginBottom: 8 }, roundBadge: { padding: 12, alignItems: 'center', minWidth: 56 }, turnNumber: { color: '#fff', fontSize: 20, fontWeight: '800' }, players: { flexDirection: 'row', gap: 6, marginVertical: 18 }, player: { flex: 1, borderBottomWidth: 2, borderBottomColor: 'transparent', paddingVertical: 10, paddingHorizontal: 4, gap: 5 }, playerName: { color: '#fff', fontSize: 11, fontWeight: '700' }, dot: { width: 9, height: 9, borderRadius: 5 }, boardCard: { marginBottom: 18 }, goal: { color: yellow, fontSize: 9, fontWeight: '800', letterSpacing: 1, textAlign: 'center', marginBottom: 10 }, cell: { flex: 1, backgroundColor: '#101923', borderWidth: 1, borderColor: '#253141', borderRadius: 4, justifyContent: 'center', alignItems: 'center' }, goldCell: { backgroundColor: '#e8b70d', borderColor: '#ffe27c' }, pawn: { borderRadius: 100, borderWidth: 2, borderColor: '#ffffff50', justifyContent: 'center', alignItems: 'center' }, hint: { color: '#8f9eb3', fontSize: 12, lineHeight: 18, marginTop: 12 }, activity: { color: '#8593a8', fontSize: 12, textAlign: 'center', marginTop: 5 }, notice: { color: '#ffe08c', paddingVertical: 14, lineHeight: 21, marginTop: 12, fontSize: 13 }, rule: { flexDirection: 'row', gap: 16, paddingVertical: 20 }, ruleNumber: { color: yellow, fontSize: 16, fontWeight: '800' }, ruleTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 }, body: { color: '#9ba9bd', fontSize: 14, lineHeight: 23 }, overlay: { flex: 1, backgroundColor: '#000c', alignItems: 'center', justifyContent: 'center', padding: 24 }, modal: { width: '100%', maxWidth: 420, backgroundColor: '#151d29', borderColor: '#344157', borderWidth: 1, borderRadius: 24, padding: 24 }
+  levelGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 16 }, levelChoice: { flexBasis: '30%', flexGrow: 1, borderBottomWidth: 1, borderBottomColor: '#ffffff40', paddingVertical: 14, minHeight: 56, alignItems: 'center', gap: 5 },
+  profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 16, marginVertical: 16 }, avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#ffc92818', alignItems: 'center', justifyContent: 'center' }, avatarText: { color: yellow, fontSize: 25, fontWeight: '800' }, nameInput: { color: '#fff', fontSize: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#ffffff40' },
+  safe: { flex: 1, backgroundColor: '#000' }, topbar: { width: '100%', maxWidth: 580, alignSelf: 'center', paddingHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, headerLogoFrame: { width: 112, height: 40, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }, headerLogo: { width: 112, height: 112 }, pause: { minHeight: 44, paddingLeft: 18, justifyContent: 'center' }, pauseText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  content: { padding: 18, paddingBottom: 40, width: '100%', maxWidth: 560, alignSelf: 'center' }, logoFrame: { height: 70, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 20 }, logo: { width: 150, height: 150 }, eyebrow: { color: yellow, fontSize: 10, fontWeight: '800', letterSpacing: 2, marginBottom: 12 }, hero: { color: '#fff', fontSize: 36, fontWeight: '900', letterSpacing: -1.2, lineHeight: 40, marginBottom: 14 }, subtitle: { color: '#fff', fontSize: 15, lineHeight: 23, marginBottom: 20 }, sectionBlock: { paddingVertical: 16, marginBottom: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8 }, section: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 1.3, flexShrink: 1 }, muted: { color: '#fff', fontSize: 9, fontWeight: '700' }, label: { fontSize: 10, color: '#fff', letterSpacing: 1.5, fontWeight: '700', marginTop: 22, marginBottom: 9 }, choice: { flex: 1, borderBottomWidth: 1, borderBottomColor: '#ffffff40', paddingVertical: 14, alignItems: 'center' }, choiceActive: { borderBottomColor: yellow }, choiceText: { color: '#fff', fontSize: 13, fontWeight: '700' }, button: { minHeight: 50, paddingHorizontal: 15, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: yellow, marginTop: 14 }, secondaryButton: { backgroundColor: 'transparent' }, buttonText: { color: '#000', fontSize: 15, fontWeight: '800' }, link: { color: '#fff', fontSize: 13, textAlign: 'center', paddingVertical: 15 }, footer: { color: '#fff', fontSize: 9, fontWeight: '700', letterSpacing: 1.2, textAlign: 'center', marginTop: 18 }, heading: { color: '#fff', fontWeight: '800', fontSize: 24, letterSpacing: -0.5, marginBottom: 8 }, roundBadge: { padding: 12, alignItems: 'center', minWidth: 56 }, turnNumber: { color: '#fff', fontSize: 20, fontWeight: '800' }, players: { flexDirection: 'row', gap: 6, marginVertical: 18 }, player: { flex: 1, borderBottomWidth: 2, borderBottomColor: 'transparent', paddingVertical: 10, paddingHorizontal: 4, gap: 5 }, playerName: { color: '#fff', fontSize: 11, fontWeight: '700' }, playerIndex: { fontSize: 20, fontWeight: '900' }, boardCard: { marginBottom: 18 }, goal: { color: yellow, fontSize: 9, fontWeight: '800', letterSpacing: 1, textAlign: 'center', marginBottom: 10 },  hint: { color: '#fff', fontSize: 12, lineHeight: 18, marginTop: 12 }, activity: { color: '#fff', fontSize: 12, textAlign: 'center', marginTop: 5 }, notice: { color: '#fff', paddingVertical: 14, lineHeight: 21, marginTop: 12, fontSize: 13 }, rule: { flexDirection: 'row', gap: 16, paddingVertical: 20 }, ruleNumber: { color: yellow, fontSize: 16, fontWeight: '800' }, ruleTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 }, body: { color: '#fff', fontSize: 14, lineHeight: 23 }, overlay: { flex: 1, backgroundColor: '#000c', alignItems: 'center', justifyContent: 'center', padding: 24 }, modal: { width: '100%', maxWidth: 420, backgroundColor: '#000', borderColor: '#ffffff40', borderWidth: 1, borderRadius: 0, padding: 24 }
 });
 
 
